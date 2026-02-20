@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import React, { useState } from "react"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,6 +20,20 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Building2,
   Stethoscope,
   TestTube,
@@ -33,8 +47,13 @@ import {
   MapPin,
   Save,
   CalendarDays,
+  Users,
+  Plus,
+  UserPlus,
 } from "lucide-react"
 import { DEFAULT_CLINIC_INFO, DEFAULT_APPOINTMENT_SETTINGS, ROLE_PERMISSIONS, ALL_PERMISSIONS } from "@/lib/constants"
+import { MOCK_USERS } from "@/lib/mock-data"
+import type { Role } from "@/lib/types"
 import { toast } from "sonner"
 
 const PERMISSION_LABELS: Record<string, { label: string; group: string }> = {
@@ -115,6 +134,10 @@ export default function SettingsPage() {
           <TabsTrigger value="appointments" className="gap-1.5">
             <Clock className="h-3.5 w-3.5" />
             Appointment Defaults
+          </TabsTrigger>
+          <TabsTrigger value="users" className="gap-1.5">
+            <Users className="h-3.5 w-3.5" />
+            User Management
           </TabsTrigger>
         </TabsList>
 
@@ -233,8 +256,8 @@ export default function SettingsPage() {
                       (p) => PERMISSION_LABELS[p]?.group === group
                     )
                     return (
-                      <>
-                        <tr key={`group-${group}`} className="bg-muted/20 border-t border-border">
+                      <React.Fragment key={group}>
+                        <tr className="bg-muted/20 border-t border-border">
                           <td
                             colSpan={ROLE_PERMISSIONS.length + 1}
                             className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider"
@@ -261,7 +284,7 @@ export default function SettingsPage() {
                             ))}
                           </tr>
                         ))}
-                      </>
+                      </React.Fragment>
                     )
                   })}
                 </tbody>
@@ -431,13 +454,12 @@ export default function SettingsPage() {
                             <Badge
                               key={u}
                               variant="secondary"
-                              className={`text-xs capitalize ${
-                                u === "stat"
-                                  ? "bg-red-100 text-red-700 border-red-200"
-                                  : u === "urgent"
+                              className={`text-xs capitalize ${u === "stat"
+                                ? "bg-red-100 text-red-700 border-red-200"
+                                : u === "urgent"
                                   ? "bg-amber-100 text-amber-700 border-amber-200"
                                   : "bg-muted text-muted-foreground"
-                              }`}
+                                }`}
                             >
                               {u}
                             </Badge>
@@ -509,7 +531,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="default-charge">Default Consultation Charge ($)</Label>
+                  <Label htmlFor="default-charge">Default Consultation Charge (Rs.)</Label>
                   <Input
                     id="default-charge"
                     type="number"
@@ -603,7 +625,267 @@ export default function SettingsPage() {
             </Card>
           </div>
         </TabsContent>
+        {/* ── User Management ── */}
+        <TabsContent value="users">
+          <UserManagementSection />
+        </TabsContent>
       </Tabs>
     </>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   User Management Section
+   ───────────────────────────────────────────────────────────────── */
+
+const CREATABLE_ROLES: { value: Role; label: string; description: string }[] = [
+  { value: "manager", label: "Manager", description: "Operations & scheduling" },
+  { value: "doctor", label: "Doctor", description: "Clinical access & treatments" },
+  { value: "accounts", label: "Accountant", description: "Billing & financial reports" },
+]
+
+function UserManagementSection() {
+  const { currentUser } = useStore()
+  const isAdmin = currentUser.role === "admin"
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [users, setUsers] = useState(MOCK_USERS)
+
+  const handleUserCreated = (user: { name: string; email: string; role: Role }) => {
+    const newUser = {
+      id: `u${Date.now()}`,
+      ...user,
+    }
+    setUsers((prev) => [...prev, newUser])
+    toast.success(`User "${user.name}" created as ${user.role}.`)
+  }
+
+  return (
+    <>
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base">System Users</CardTitle>
+            <CardDescription>
+              {users.length} user(s) registered in the system.
+              {isAdmin ? " You can create new users." : " Only admins can manage users."}
+            </CardDescription>
+          </div>
+          {isAdmin && (
+            <Button size="sm" onClick={() => setShowCreateModal(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Add User
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.map((u) => (
+                <TableRow key={u.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 font-semibold text-sm text-primary">
+                        {u.name.charAt(0)}
+                      </div>
+                      <span className="font-medium">{u.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{u.email}</TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={`capitalize ${ROLE_COLORS[u.role] ?? ""}`}
+                    >
+                      {u.role}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                      Active
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* Role summary cards */}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {["admin", "doctor", "manager", "accounts"].map((role) => {
+          const count = users.filter((u) => u.role === role).length
+          return (
+            <Card key={role} className="bg-muted/30">
+              <CardContent className="p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold capitalize">{role}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {count} user{count !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                <Badge variant="outline" className={`capitalize ${ROLE_COLORS[role] ?? ""}`}>
+                  {count}
+                </Badge>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
+
+      {isAdmin && (
+        <CreateUserModal
+          open={showCreateModal}
+          onOpenChange={setShowCreateModal}
+          onUserCreated={handleUserCreated}
+        />
+      )}
+    </>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Create User Modal
+   ───────────────────────────────────────────────────────────────── */
+function CreateUserModal({
+  open,
+  onOpenChange,
+  onUserCreated,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onUserCreated: (user: { name: string; email: string; role: Role }) => void
+}) {
+  const [name, setName] = useState("")
+  const [email, setEmail] = useState("")
+  const [role, setRole] = useState<string>("")
+  const [password, setPassword] = useState("")
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!name || !email || !role || !password) {
+      toast.error("Please fill in all required fields.")
+      return
+    }
+    if (role === "admin") {
+      toast.error("You cannot create an admin user.")
+      return
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      toast.error("Please enter a valid email address.")
+      return
+    }
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters.")
+      return
+    }
+    onUserCreated({ name, email, role: role as Role })
+    onOpenChange(false)
+    setName("")
+    setEmail("")
+    setRole("")
+    setPassword("")
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="h-5 w-5 text-primary" />
+            Create New User
+          </DialogTitle>
+          <DialogDescription>
+            Add a new user to the system. You can create Manager, Doctor, or Accountant users.
+            Admin users cannot be created.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="user-name">Full Name *</Label>
+              <Input
+                id="user-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Enter full name"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="user-email">Email *</Label>
+              <Input
+                id="user-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="user@clinic.com"
+              />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label>Role *</Label>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CREATABLE_ROLES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>
+                      <div className="flex flex-col">
+                        <span>{r.label}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {role && (
+                <p className="text-xs text-muted-foreground">
+                  {CREATABLE_ROLES.find((r) => r.value === role)?.description}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="user-password">Password *</Label>
+              <Input
+                id="user-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Min 6 characters"
+              />
+            </div>
+          </div>
+
+          {/* Info callout - no admin creation */}
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 flex items-start gap-2">
+            <Shield className="h-4 w-4 mt-0.5 shrink-0" />
+            <div>
+              <p className="font-semibold">Admin restriction</p>
+              <p>For security, new admin accounts cannot be created from this interface. Contact your system administrator if you need a new admin.</p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit">
+              <UserPlus className="mr-1.5 h-4 w-4" />
+              Create User
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }

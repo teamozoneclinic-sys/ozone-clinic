@@ -80,7 +80,39 @@ export const ALL_PERMISSIONS: Permission[] = [
   "settings.view",
   "settings.edit",
   "audit.view",
+  "doctors.view",
+  "doctors.create",
+  "doctors.edit",
 ]
+
+export const DOCTOR_TYPES = [
+  { value: "consultant", label: "Consultant" },
+  { value: "visiting", label: "Visiting" },
+  { value: "resident", label: "Resident" },
+  { value: "full-time", label: "Full-time" },
+  { value: "part-time", label: "Part-time" },
+] as const
+
+export const SPECIALTIES = [
+  "General Medicine",
+  "Cardiology",
+  "Dermatology",
+  "Orthopedics",
+  "Pediatrics",
+  "Gynecology",
+  "Neurology",
+  "ENT",
+  "Ophthalmology",
+  "Psychiatry",
+  "Oncology",
+  "Urology",
+  "Nephrology",
+  "Endocrinology",
+  "Pulmonology",
+  "Gastroenterology",
+  "Rheumatology",
+  "Infectious Disease",
+] as const
 
 export const ROLE_PERMISSIONS: RolePermissions[] = [
   {
@@ -103,8 +135,6 @@ export const ROLE_PERMISSIONS: RolePermissions[] = [
       "treatments.view",
       "treatments.create",
       "treatments.edit",
-      "billing.view",
-      "reports.view",
     ],
   },
   {
@@ -126,6 +156,7 @@ export const ROLE_PERMISSIONS: RolePermissions[] = [
       "reports.view",
       "settings.view",
       "audit.view",
+      "doctors.view",
     ],
   },
   {

@@ -138,6 +138,7 @@ export interface Doctor {
   id: string
   name: string
   specialty: string
+  type: string
   phone: string
   email: string
   consultationFee: number
@@ -210,6 +211,9 @@ export type Permission =
   | "settings.view"
   | "settings.edit"
   | "audit.view"
+  | "doctors.view"
+  | "doctors.create"
+  | "doctors.edit"
 
 export interface RolePermissions {
   role: Role

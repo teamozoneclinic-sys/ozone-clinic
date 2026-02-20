@@ -65,6 +65,8 @@ export default function CatalogPage() {
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingTest, setEditingTest] = useState<TestCatalogItem | null>(null)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
 
   const canEdit = hasPermission("settings.edit")
 
@@ -143,19 +145,23 @@ export default function CatalogPage() {
                 className="pl-9"
               />
             </div>
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="All Categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories ({testCatalog.length})</SelectItem>
-                {uniqueCategories.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c} ({testCatalog.filter((t) => t.category === c).length})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {mounted ? (
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories ({testCatalog.length})</SelectItem>
+                  {uniqueCategories.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {c} ({testCatalog.filter((t) => t.category === c).length})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <div className="h-10 w-[180px] rounded-md border border-input bg-background" />
+            )}
           </div>
         </CardContent>
       </Card>

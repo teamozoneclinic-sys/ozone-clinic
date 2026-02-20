@@ -9,6 +9,7 @@ import type {
   Appointment,
   Treatment,
   Invoice,
+  Payment,
   TestCatalogItem,
   AuditLogEntry,
   Permission,
@@ -34,6 +35,7 @@ interface StoreState {
   // Data
   patients: Patient[]
   doctors: Doctor[]
+  addDoctor: (data: Omit<Doctor, "id">) => void
   appointments: Appointment[]
   treatments: Treatment[]
   invoices: Invoice[]
@@ -55,6 +57,7 @@ interface StoreState {
   getTotalRevenue: () => number
   getTreatmentByAppointment: (appointmentId: string) => Treatment | undefined
   createTreatment: (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">) => Treatment
+  collectPayment: (invoiceId: string, payment: Omit<Payment, "id">) => void
 }
 
 const StoreContext = createContext<StoreState | undefined>(undefined)
@@ -62,10 +65,10 @@ const StoreContext = createContext<StoreState | undefined>(undefined)
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0])
   const [patients] = useState<Patient[]>(MOCK_PATIENTS)
-  const [doctors] = useState<Doctor[]>(MOCK_DOCTORS)
+  const [doctors, setDoctors] = useState<Doctor[]>(MOCK_DOCTORS)
   const [appointments] = useState<Appointment[]>(MOCK_APPOINTMENTS)
   const [treatments, setTreatments] = useState<Treatment[]>(MOCK_TREATMENTS)
-  const [invoices] = useState<Invoice[]>(MOCK_INVOICES)
+  const [invoices, setInvoices] = useState<Invoice[]>(MOCK_INVOICES)
   const [testCatalog] = useState<TestCatalogItem[]>(MOCK_TEST_CATALOG)
   const [auditLog] = useState<AuditLogEntry[]>(MOCK_AUDIT_LOG)
 
@@ -149,6 +152,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     []
   )
 
+  const addDoctor = useCallback(
+    (data: Omit<Doctor, "id">) => {
+      const newDoctor: Doctor = { ...data, id: `d${Date.now()}` }
+      setDoctors((prev) => [...prev, newDoctor])
+    },
+    []
+  )
+
+  const collectPayment = useCallback(
+    (invoiceId: string, payment: Omit<Payment, "id">) => {
+      setInvoices((prev) =>
+        prev.map((inv) => {
+          if (inv.id !== invoiceId) return inv
+          const newPayment: Payment = { ...payment, id: `pay${Date.now()}` }
+          const newPaid = inv.paidAmount + payment.amount
+          const newBalance = inv.totalAmount - newPaid
+          const newStatus =
+            newBalance <= 0 ? "paid" : newPaid > 0 ? "partially-paid" : "unpaid"
+          return {
+            ...inv,
+            payments: [...inv.payments, newPayment],
+            paidAmount: newPaid,
+            balance: Math.max(0, newBalance),
+            status: newStatus,
+            updatedAt: new Date().toISOString(),
+          }
+        })
+      )
+    },
+    []
+  )
+
   return (
     <StoreContext.Provider
       value={{
@@ -157,6 +192,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         hasPermission,
         patients,
         doctors,
+        addDoctor,
         appointments,
         treatments,
         invoices,
@@ -176,6 +212,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         getTotalRevenue,
         getTreatmentByAppointment,
         createTreatment,
+        collectPayment,
       }}
     >
       {children}

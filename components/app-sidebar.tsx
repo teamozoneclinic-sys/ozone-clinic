@@ -28,6 +28,7 @@ import {
   ScrollText,
   Heart,
   FlaskConical,
+  UserRound,
 } from "lucide-react"
 import type { Permission } from "@/lib/types"
 
@@ -52,6 +53,7 @@ const financeNav: NavItem[] = [
 ]
 
 const adminNav: NavItem[] = [
+  { title: "Doctors", href: "/doctors", icon: UserRound, permission: "doctors.view" },
   { title: "Settings", href: "/settings", icon: Settings, permission: "settings.view" },
   { title: "Audit Log", href: "/audit", icon: ScrollText, permission: "audit.view" },
 ]
