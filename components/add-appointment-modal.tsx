@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useStore } from "@/lib/store"
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { toast } from "sonner"
 import {
   CalendarDays,
@@ -23,11 +23,147 @@ import {
   Stethoscope,
   UserPlus,
   Phone,
+  Loader2,
+  Clock,
+  AlertCircle,
 } from "lucide-react"
+import type { Appointment } from "@/lib/types"
 
 interface AddAppointmentModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+}
+
+// ─── Time slot helpers ─────────────────────────────────────────────────────
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number)
+  return h * 60 + m
+}
+
+function generateSlots(startTime: string, endTime: string, step = 30): string[] {
+  const slots: string[] = []
+  let cur = timeToMinutes(startTime)
+  const end = timeToMinutes(endTime)
+  while (cur + step <= end) {
+    const h = Math.floor(cur / 60).toString().padStart(2, "0")
+    const m = (cur % 60).toString().padStart(2, "0")
+    slots.push(`${h}:${m}`)
+    cur += step
+  }
+  return slots
+}
+
+function isSlotBooked(slotTime: string, slotDuration: number, existing: Appointment[]): boolean {
+  const slotStart = timeToMinutes(slotTime)
+  const slotEnd = slotStart + slotDuration
+  return existing.some((apt) => {
+    const aptStart = timeToMinutes(apt.time)
+    const aptEnd = aptStart + apt.duration
+    return slotStart < aptEnd && slotEnd > aptStart
+  })
+}
+
+function getDayName(dateStr: string): string {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" })
+}
+
+// ─── Time Slot Picker ──────────────────────────────────────────────────────
+
+function TimeSlotPicker({
+  doctorId,
+  date,
+  duration,
+  value,
+  onChange,
+}: {
+  doctorId: string
+  date: string
+  duration: number
+  value: string
+  onChange: (t: string) => void
+}) {
+  const { doctors, appointments } = useStore()
+  const doctor = doctors.find((d) => d.id === doctorId)
+
+  const { slots, bookedSlots, schedule } = useMemo(() => {
+    if (!doctor || !date) return { slots: [], bookedSlots: new Set<string>(), schedule: null }
+
+    const dayName = getDayName(date)
+    const sched = doctor.schedule.find((s) => s.day === dayName) ?? null
+    if (!sched) return { slots: [], bookedSlots: new Set<string>(), schedule: null }
+
+    const allSlots = generateSlots(sched.startTime, sched.endTime, 30)
+
+    const existing = appointments.filter(
+      (a) => a.doctorId === doctorId && a.date === date && a.status !== "cancelled"
+    )
+
+    const booked = new Set<string>()
+    for (const slot of allSlots) {
+      if (isSlotBooked(slot, duration, existing)) booked.add(slot)
+    }
+
+    return { slots: allSlots, bookedSlots: booked, schedule: sched }
+  }, [doctor, date, duration, doctorId, appointments])
+
+  if (!doctorId || !date) {
+    return (
+      <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-5 text-center text-sm text-muted-foreground">
+        Select a doctor and date to see available time slots.
+      </div>
+    )
+  }
+
+  if (!schedule) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+        <AlertCircle className="h-4 w-4 shrink-0" />
+        Doctor is not available on {getDayName(date)}s. Please choose another date.
+      </div>
+    )
+  }
+
+  const available = slots.filter((s) => !bookedSlots.has(s))
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="text-xs text-muted-foreground">
+        {schedule.startTime} – {schedule.endTime} &nbsp;·&nbsp;
+        <span className="text-emerald-600 font-medium">{available.length} slots free</span>
+        {bookedSlots.size > 0 && (
+          <span className="text-red-500"> · {bookedSlots.size} booked</span>
+        )}
+      </div>
+      {slots.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-3">No slots available for this schedule.</p>
+      ) : (
+        <div className="grid grid-cols-4 gap-1.5 max-h-[150px] overflow-y-auto pr-1">
+          {slots.map((slot) => {
+            const booked = bookedSlots.has(slot)
+            const selected = value === slot
+            return (
+              <button
+                key={slot}
+                type="button"
+                disabled={booked}
+                onClick={() => !booked && onChange(slot)}
+                className={`rounded-md border text-xs font-medium py-1.5 transition-all ${
+                  selected
+                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                    : booked
+                    ? "border-red-200 bg-red-50 text-red-400 cursor-not-allowed line-through"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300"
+                }`}
+              >
+                {slot}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Searchable Doctor Combobox ────────────────────────────────────────────
@@ -136,7 +272,7 @@ function DoctorCombobox({
 // ─── Main Modal ────────────────────────────────────────────────────────────
 
 export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalProps) {
-  const { patients, doctors } = useStore()
+  const { patients, doctors, addAppointment } = useStore()
   const [patientSearch, setPatientSearch] = useState("")
   const [patientId, setPatientId] = useState("")
   const [doctorId, setDoctorId] = useState("")
@@ -145,6 +281,7 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
   const [duration, setDuration] = useState("30")
   const [type, setType] = useState("")
   const [notes, setNotes] = useState("")
+  const [saving, setSaving] = useState(false)
 
   const doctorItems: DoctorItem[] = doctors
     .filter((d) => d.isActive)
@@ -169,23 +306,43 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
     setTime(""); setDuration("30"); setType(""); setNotes("")
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Reset time whenever doctor or date changes
+  useEffect(() => { setTime("") }, [doctorId, date])
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!patientId || !doctorId || !date || !time) {
-      toast.error("Please select a patient, doctor, date and time.")
+      toast.error("Please select a patient, doctor, date and time slot.")
       return
     }
     const patient = patients.find((p) => p.id === patientId)
-    toast.success(`Appointment booked for ${patient?.name ?? "patient"}.`)
-    onOpenChange(false)
-    reset()
+    setSaving(true)
+    try {
+      await addAppointment({
+        patientId,
+        doctorId,
+        date,
+        time,
+        duration: parseInt(duration),
+        type: type || "consultation",
+        notes: notes.trim(),
+        status: "scheduled",
+      })
+      toast.success(`Appointment booked for ${patient?.name ?? "patient"}.`)
+      onOpenChange(false)
+      reset()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to book appointment.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
       <DialogContent
         showCloseButton={false}
-        className="sm:max-w-[880px] p-0 gap-0 overflow-hidden h-[580px] flex flex-col"
+        className="sm:max-w-[880px] p-0 gap-0 overflow-hidden h-[640px] flex flex-col"
       >
         {/* ── Full-width Header ── */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
@@ -298,7 +455,7 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                 />
               </div>
 
-              {/* Date | Time */}
+              {/* Date | Duration */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="apt-date" className="text-sm font-medium">
@@ -313,24 +470,8 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="apt-time" className="text-sm font-medium">
-                    Time <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="apt-time"
-                    type="time"
-                    value={time}
-                    onChange={(e) => setTime(e.target.value)}
-                    className="h-10"
-                  />
-                </div>
-              </div>
-
-              {/* Duration | Type */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
                   <Label className="text-sm font-medium">Duration</Label>
-                  <Select value={duration} onValueChange={setDuration}>
+                  <Select value={duration} onValueChange={(v) => { setDuration(v); setTime("") }}>
                     <SelectTrigger className="h-10">
                       <SelectValue />
                     </SelectTrigger>
@@ -343,22 +484,44 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-sm font-medium">Appointment Type</Label>
-                  <Select value={type} onValueChange={setType}>
-                    <SelectTrigger className="h-10">
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="consultation">Consultation</SelectItem>
-                      <SelectItem value="follow-up">Follow-up</SelectItem>
-                      <SelectItem value="treatment">Treatment</SelectItem>
-                      <SelectItem value="annual-checkup">Annual Check-up</SelectItem>
-                      <SelectItem value="post-surgery">Post-Surgery</SelectItem>
-                      <SelectItem value="ecg-review">ECG Review</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+              </div>
+
+              {/* Time Slot Picker */}
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                  Time Slot <span className="text-red-500">*</span>
+                  {time && (
+                    <span className="ml-auto text-xs font-normal text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                      Selected: {time}
+                    </span>
+                  )}
+                </Label>
+                <TimeSlotPicker
+                  doctorId={doctorId}
+                  date={date}
+                  duration={parseInt(duration)}
+                  value={time}
+                  onChange={setTime}
+                />
+              </div>
+
+              {/* Type */}
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-sm font-medium">Appointment Type</Label>
+                <Select value={type} onValueChange={setType}>
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="consultation">Consultation</SelectItem>
+                    <SelectItem value="follow-up">Follow-up</SelectItem>
+                    <SelectItem value="treatment">Treatment</SelectItem>
+                    <SelectItem value="annual-checkup">Annual Check-up</SelectItem>
+                    <SelectItem value="post-surgery">Post-Surgery</SelectItem>
+                    <SelectItem value="ecg-review">ECG Review</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Notes */}
@@ -369,7 +532,7 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="Symptoms, reason for visit, special instructions…"
-                  rows={3}
+                  rows={2}
                   className="resize-none text-sm"
                 />
               </div>
@@ -401,12 +564,17 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                 variant="outline"
                 onClick={() => { onOpenChange(false); reset() }}
                 className="px-5"
+                disabled={saving}
               >
                 Discard
               </Button>
-              <Button type="submit" className="px-5 gap-1.5">
-                <CalendarDays className="h-4 w-4" />
-                Book Appointment
+              <Button type="submit" className="px-5 gap-1.5" disabled={saving}>
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CalendarDays className="h-4 w-4" />
+                )}
+                {saving ? "Booking…" : "Book Appointment"}
               </Button>
             </div>
           </form>

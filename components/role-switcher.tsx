@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { useStore } from "@/lib/store"
 import type { Role } from "@/lib/types"
 import {
@@ -12,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { SidebarMenuButton } from "@/components/ui/sidebar"
-import { ChevronsUpDown, Shield, Stethoscope, UserCog, Calculator } from "lucide-react"
+import { ChevronsUpDown, Shield, Stethoscope, UserCog, Calculator, LogOut } from "lucide-react"
 
 const roleConfig: Record<Role, { label: string; icon: typeof Shield; color: string }> = {
   admin: { label: "Admin", icon: Shield, color: "text-red-600" },
@@ -22,10 +23,10 @@ const roleConfig: Record<Role, { label: string; icon: typeof Shield; color: stri
 }
 
 export function RoleSwitcher() {
-  const { currentUser, setCurrentRole } = useStore()
-  const config = roleConfig[currentUser.role]
-  const Icon = config.icon
+  const { currentUser } = useStore()
+  const router = useRouter()
   const [mounted, setMounted] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -43,6 +44,20 @@ export function RoleSwitcher() {
     )
   }
 
+  const role = currentUser?.role ?? "admin"
+  const config = roleConfig[role]
+  const Icon = config.icon
+
+  const handleLogout = async () => {
+    setLoggingOut(true)
+    try {
+      await fetch("/api/auth/logout", { method: "POST" })
+    } finally {
+      router.push("/login")
+      router.refresh()
+    }
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -54,7 +69,7 @@ export function RoleSwitcher() {
             <Icon className={`h-4 w-4 ${config.color}`} />
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight">
-            <span className="truncate font-semibold">{currentUser.name}</span>
+            <span className="truncate font-semibold">{currentUser?.name ?? "Loading…"}</span>
             <span className="truncate text-xs text-muted-foreground">{config.label}</span>
           </div>
           <ChevronsUpDown className="ml-auto h-4 w-4 text-muted-foreground" />
@@ -66,25 +81,20 @@ export function RoleSwitcher() {
         side="top"
         sideOffset={4}
       >
-        <DropdownMenuLabel className="text-xs text-muted-foreground">Switch Role</DropdownMenuLabel>
+        <DropdownMenuLabel className="text-xs text-muted-foreground">Signed in as</DropdownMenuLabel>
+        <div className="px-2 py-1.5">
+          <p className="text-sm font-semibold truncate">{currentUser?.name}</p>
+          <p className="text-xs text-muted-foreground truncate">{currentUser?.email}</p>
+        </div>
         <DropdownMenuSeparator />
-        {(Object.keys(roleConfig) as Role[]).map((role) => {
-          const rc = roleConfig[role]
-          const RcIcon = rc.icon
-          return (
-            <DropdownMenuItem
-              key={role}
-              onClick={() => setCurrentRole(role)}
-              className="gap-2"
-            >
-              <RcIcon className={`h-4 w-4 ${rc.color}`} />
-              <span>{rc.label}</span>
-              {currentUser.role === role && (
-                <span className="ml-auto text-xs text-muted-foreground">Active</span>
-              )}
-            </DropdownMenuItem>
-          )
-        })}
+        <DropdownMenuItem
+          onClick={handleLogout}
+          disabled={loggingOut}
+          className="gap-2 text-red-600 focus:text-red-600 focus:bg-red-50"
+        >
+          <LogOut className="h-4 w-4" />
+          <span>{loggingOut ? "Signing out…" : "Sign Out"}</span>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   )

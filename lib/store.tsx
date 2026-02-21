@@ -1,6 +1,13 @@
 "use client"
 
-import React, { createContext, useContext, useState, useCallback, type ReactNode } from "react"
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  type ReactNode,
+} from "react"
 import type {
   Role,
   User,
@@ -14,33 +21,63 @@ import type {
   AuditLogEntry,
   Permission,
 } from "./types"
-import {
-  MOCK_USERS,
-  MOCK_PATIENTS,
-  MOCK_DOCTORS,
-  MOCK_APPOINTMENTS,
-  MOCK_TREATMENTS,
-  MOCK_INVOICES,
-  MOCK_TEST_CATALOG,
-  MOCK_AUDIT_LOG,
-} from "./mock-data"
 import { ROLE_PERMISSIONS } from "./constants"
 
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+async function apiFetch<T = unknown>(
+  url: string,
+  options?: RequestInit
+): Promise<T> {
+  const res = await fetch(url, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `Request failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+// ─── Store interface ─────────────────────────────────────────────────────────
+
 interface StoreState {
-  // Current user / role
-  currentUser: User
-  setCurrentRole: (role: Role) => void
+  // Auth
+  currentUser: User | null
+  isLoading: boolean
   hasPermission: (permission: Permission) => boolean
+  setCurrentRole: (role: Role) => void // legacy compat
 
   // Data
   patients: Patient[]
   doctors: Doctor[]
-  addDoctor: (data: Omit<Doctor, "id">) => void
   appointments: Appointment[]
   treatments: Treatment[]
   invoices: Invoice[]
   testCatalog: TestCatalogItem[]
   auditLog: AuditLogEntry[]
+
+  // Mutations
+  addPatient: (data: Omit<Patient, "id" | "createdAt" | "updatedAt" | "medicalHistory" | "documents">) => Promise<void>
+  updatePatient: (id: string, data: Partial<Patient>) => Promise<void>
+  deletePatient: (id: string) => Promise<void>
+  deleteTestCatalogItem: (id: string) => Promise<void>
+  addDoctor: (data: Omit<Doctor, "id">) => Promise<void>
+  addAppointment: (data: {
+    patientId: string
+    doctorId: string
+    date: string
+    time: string
+    duration: number
+    type: string
+    notes: string
+    status?: string
+  }) => Promise<void>
+  collectPayment: (invoiceId: string, payment: Omit<Payment, "id">) => Promise<void>
+  createTreatment: (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">) => Promise<Treatment>
+  updateAppointmentStatus: (appointmentId: string, status: Appointment["status"]) => Promise<void>
+  refetch: () => Promise<void>
 
   // Helpers
   getPatient: (id: string) => Patient | undefined
@@ -56,34 +93,163 @@ interface StoreState {
   getUnpaidInvoices: () => Invoice[]
   getTotalRevenue: () => number
   getTreatmentByAppointment: (appointmentId: string) => Treatment | undefined
-  createTreatment: (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">) => Treatment
-  collectPayment: (invoiceId: string, payment: Omit<Payment, "id">) => void
 }
 
 const StoreContext = createContext<StoreState | undefined>(undefined)
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [currentUser, setCurrentUser] = useState<User>(MOCK_USERS[0])
-  const [patients] = useState<Patient[]>(MOCK_PATIENTS)
-  const [doctors, setDoctors] = useState<Doctor[]>(MOCK_DOCTORS)
-  const [appointments] = useState<Appointment[]>(MOCK_APPOINTMENTS)
-  const [treatments, setTreatments] = useState<Treatment[]>(MOCK_TREATMENTS)
-  const [invoices, setInvoices] = useState<Invoice[]>(MOCK_INVOICES)
-  const [testCatalog] = useState<TestCatalogItem[]>(MOCK_TEST_CATALOG)
-  const [auditLog] = useState<AuditLogEntry[]>(MOCK_AUDIT_LOG)
+  const [currentUser, setCurrentUser] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [patients, setPatients] = useState<Patient[]>([])
+  const [doctors, setDoctors] = useState<Doctor[]>([])
+  const [appointments, setAppointments] = useState<Appointment[]>([])
+  const [treatments, setTreatments] = useState<Treatment[]>([])
+  const [invoices, setInvoices] = useState<Invoice[]>([])
+  const [testCatalog, setTestCatalog] = useState<TestCatalogItem[]>([])
+  const [auditLog] = useState<AuditLogEntry[]>([])
 
-  const setCurrentRole = useCallback((role: Role) => {
-    const user = MOCK_USERS.find((u) => u.role === role)
-    if (user) setCurrentUser(user)
+  // ── Fetch all data ────────────────────────────────────────────────────
+  const fetchAll = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const [meRes, patientsRes, doctorsRes, appointmentsRes, treatmentsRes, invoicesRes, catalogRes] =
+        await Promise.all([
+          apiFetch<{ user: User }>("/api/auth/me"),
+          apiFetch<{ data: Patient[] }>("/api/patients"),
+          apiFetch<{ data: Doctor[] }>("/api/doctors"),
+          apiFetch<{ data: Appointment[] }>("/api/appointments"),
+          apiFetch<{ data: Treatment[] }>("/api/treatments"),
+          apiFetch<{ data: Invoice[] }>("/api/invoices"),
+          apiFetch<{ data: TestCatalogItem[] }>("/api/catalog"),
+        ])
+      setCurrentUser(meRes.user)
+      setPatients(patientsRes.data)
+      setDoctors(doctorsRes.data)
+      setAppointments(appointmentsRes.data)
+      setTreatments(treatmentsRes.data)
+      setInvoices(invoicesRes.data)
+      setTestCatalog(catalogRes.data)
+    } catch (err) {
+      console.error("Store fetch error:", err)
+    } finally {
+      setIsLoading(false)
+    }
   }, [])
 
+  useEffect(() => {
+    fetchAll()
+  }, [fetchAll])
+
+  // ── Permissions ───────────────────────────────────────────────────────
   const hasPermission = useCallback(
     (permission: Permission) => {
+      if (!currentUser) return false
       const rolePerm = ROLE_PERMISSIONS.find((rp) => rp.role === currentUser.role)
       return rolePerm?.permissions.includes(permission) ?? false
     },
-    [currentUser.role]
+    [currentUser]
   )
+
+  // Legacy compat — role comes from JWT; kept so RoleSwitcher compiles
+  const setCurrentRole = useCallback((_role: Role) => {}, [])
+
+  // ── Mutations ─────────────────────────────────────────────────────────
+
+  const addPatient = useCallback(
+    async (data: Omit<Patient, "id" | "createdAt" | "updatedAt" | "medicalHistory" | "documents">) => {
+      const res = await apiFetch<{ data: Patient }>("/api/patients", {
+        method: "POST",
+        body: JSON.stringify({ ...data, medicalHistory: [], documents: [] }),
+      })
+      setPatients((prev) => [res.data, ...prev])
+    },
+    []
+  )
+
+  const updatePatient = useCallback(async (id: string, data: Partial<Patient>) => {
+    const res = await apiFetch<{ data: Patient }>(`/api/patients/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+    setPatients((prev) => prev.map((p) => (p.id === id ? res.data : p)))
+  }, [])
+
+  const deletePatient = useCallback(async (id: string) => {
+    await apiFetch(`/api/patients/${id}`, { method: "DELETE" })
+    setPatients((prev) => prev.filter((p) => p.id !== id))
+  }, [])
+
+  const deleteTestCatalogItem = useCallback(async (id: string) => {
+    await apiFetch(`/api/catalog/${id}`, { method: "DELETE" })
+    setTestCatalog((prev) => prev.filter((t) => t.id !== id))
+  }, [])
+
+  const addDoctor = useCallback(async (data: Omit<Doctor, "id">) => {
+    const res = await apiFetch<{ data: Doctor }>("/api/doctors", {
+      method: "POST",
+      body: JSON.stringify(data),
+    })
+    setDoctors((prev) => [...prev, res.data])
+  }, [])
+
+  const addAppointment = useCallback(
+    async (data: {
+      patientId: string
+      doctorId: string
+      date: string
+      time: string
+      duration: number
+      type: string
+      notes: string
+      status?: string
+    }) => {
+      const res = await apiFetch<{ data: Appointment }>("/api/appointments", {
+        method: "POST",
+        body: JSON.stringify(data),
+      })
+      setAppointments((prev) => [res.data, ...prev])
+      // Refresh invoices to capture the auto-created one
+      const invRes = await apiFetch<{ data: Invoice[] }>("/api/invoices")
+      setInvoices(invRes.data)
+    },
+    []
+  )
+
+  const collectPayment = useCallback(
+    async (invoiceId: string, payment: Omit<Payment, "id">) => {
+      const res = await apiFetch<{ data: Invoice }>(`/api/invoices/${invoiceId}/payment`, {
+        method: "POST",
+        body: JSON.stringify(payment),
+      })
+      setInvoices((prev) => prev.map((inv) => (inv.id === invoiceId ? res.data : inv)))
+    },
+    []
+  )
+
+  const createTreatment = useCallback(
+    async (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">): Promise<Treatment> => {
+      const res = await apiFetch<{ data: Treatment }>("/api/treatments", {
+        method: "POST",
+        body: JSON.stringify(data),
+      })
+      setTreatments((prev) => [res.data, ...prev])
+      return res.data
+    },
+    []
+  )
+
+  const updateAppointmentStatus = useCallback(
+    async (appointmentId: string, status: Appointment["status"]) => {
+      const res = await apiFetch<{ data: Appointment }>(`/api/appointments/${appointmentId}`, {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      })
+      setAppointments((prev) => prev.map((a) => (a.id === appointmentId ? res.data : a)))
+    },
+    []
+  )
+
+  // ── Helpers ───────────────────────────────────────────────────────────
 
   const getPatient = useCallback((id: string) => patients.find((p) => p.id === id), [patients])
   const getDoctor = useCallback((id: string) => doctors.find((d) => d.id === id), [doctors])
@@ -95,109 +261,70 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (patientId: string) => appointments.filter((a) => a.patientId === patientId),
     [appointments]
   )
-
   const getPatientInvoices = useCallback(
     (patientId: string) => invoices.filter((i) => i.patientId === patientId),
     [invoices]
   )
-
   const getPatientTreatments = useCallback(
     (patientId: string) => treatments.filter((t) => t.patientId === patientId),
     [treatments]
   )
-
   const getDoctorAppointments = useCallback(
-    (doctorId: string, date?: string) => {
-      return appointments.filter((a) => {
+    (doctorId: string, date?: string) =>
+      appointments.filter((a) => {
         const matchDoctor = a.doctorId === doctorId
         const matchDate = date ? a.date === date : true
         return matchDoctor && matchDate
-      })
-    },
+      }),
     [appointments]
   )
 
   const getTodayAppointments = useCallback(() => {
-    const today = "2026-02-20"
+    const today = new Date().toISOString().split("T")[0]
     return appointments
       .filter((a) => a.date === today && a.status !== "cancelled")
       .sort((a, b) => a.time.localeCompare(b.time))
   }, [appointments])
 
-  const getUnpaidInvoices = useCallback(() => {
-    return invoices.filter((i) => i.status === "unpaid" || i.status === "partially-paid")
-  }, [invoices])
+  const getUnpaidInvoices = useCallback(
+    () => invoices.filter((i) => i.status === "unpaid" || i.status === "partially-paid"),
+    [invoices]
+  )
 
-  const getTotalRevenue = useCallback(() => {
-    return invoices.reduce((sum, i) => sum + i.paidAmount, 0)
-  }, [invoices])
+  const getTotalRevenue = useCallback(
+    () => invoices.reduce((sum, i) => sum + i.paidAmount, 0),
+    [invoices]
+  )
 
   const getTreatmentByAppointment = useCallback(
     (appointmentId: string) => treatments.find((t) => t.appointmentId === appointmentId),
     [treatments]
   )
 
-  const createTreatment = useCallback(
-    (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">): Treatment => {
-      const now = new Date().toISOString()
-      const newTreatment: Treatment = {
-        ...data,
-        id: `tr${Date.now()}`,
-        createdAt: now,
-        updatedAt: now,
-      }
-      setTreatments((prev) => [...prev, newTreatment])
-      return newTreatment
-    },
-    []
-  )
-
-  const addDoctor = useCallback(
-    (data: Omit<Doctor, "id">) => {
-      const newDoctor: Doctor = { ...data, id: `d${Date.now()}` }
-      setDoctors((prev) => [...prev, newDoctor])
-    },
-    []
-  )
-
-  const collectPayment = useCallback(
-    (invoiceId: string, payment: Omit<Payment, "id">) => {
-      setInvoices((prev) =>
-        prev.map((inv) => {
-          if (inv.id !== invoiceId) return inv
-          const newPayment: Payment = { ...payment, id: `pay${Date.now()}` }
-          const newPaid = inv.paidAmount + payment.amount
-          const newBalance = inv.totalAmount - newPaid
-          const newStatus =
-            newBalance <= 0 ? "paid" : newPaid > 0 ? "partially-paid" : "unpaid"
-          return {
-            ...inv,
-            payments: [...inv.payments, newPayment],
-            paidAmount: newPaid,
-            balance: Math.max(0, newBalance),
-            status: newStatus,
-            updatedAt: new Date().toISOString(),
-          }
-        })
-      )
-    },
-    []
-  )
-
   return (
     <StoreContext.Provider
       value={{
         currentUser,
-        setCurrentRole,
+        isLoading,
         hasPermission,
+        setCurrentRole,
         patients,
         doctors,
-        addDoctor,
         appointments,
         treatments,
         invoices,
         testCatalog,
         auditLog,
+        addPatient,
+        updatePatient,
+        deletePatient,
+        deleteTestCatalogItem,
+        addDoctor,
+        addAppointment,
+        collectPayment,
+        createTreatment,
+        updateAppointmentStatus,
+        refetch: fetchAll,
         getPatient,
         getDoctor,
         getAppointment,
@@ -211,8 +338,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         getUnpaidInvoices,
         getTotalRevenue,
         getTreatmentByAppointment,
-        createTreatment,
-        collectPayment,
       }}
     >
       {children}

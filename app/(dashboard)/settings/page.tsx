@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,9 +50,21 @@ import {
   Users,
   Plus,
   UserPlus,
+  Trash2,
+  Loader2,
 } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import type { TestCatalogItem } from "@/lib/types"
 import { DEFAULT_CLINIC_INFO, DEFAULT_APPOINTMENT_SETTINGS, ROLE_PERMISSIONS, ALL_PERMISSIONS } from "@/lib/constants"
-import { MOCK_USERS } from "@/lib/mock-data"
 import type { Role } from "@/lib/types"
 import { toast } from "sonner"
 
@@ -88,8 +100,26 @@ const ROLE_COLORS: Record<string, string> = {
 }
 
 export default function SettingsPage() {
-  const { doctors, testCatalog, hasPermission } = useStore()
+  const { doctors, testCatalog, hasPermission, currentUser, deleteTestCatalogItem } = useStore()
   const canEdit = hasPermission("settings.edit")
+  const isAdmin = currentUser?.role === "admin"
+
+  const [deletingTest, setDeletingTest] = useState<TestCatalogItem | null>(null)
+  const [deletingTestBusy, setDeletingTestBusy] = useState(false)
+
+  const handleDeleteTest = async () => {
+    if (!deletingTest) return
+    setDeletingTestBusy(true)
+    try {
+      await deleteTestCatalogItem(deletingTest.id)
+      toast.success(`Test "${deletingTest.name}" deleted.`)
+      setDeletingTest(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete test.")
+    } finally {
+      setDeletingTestBusy(false)
+    }
+  }
 
   // Clinic info state
   const [clinic, setClinic] = useState(DEFAULT_CLINIC_INFO)
@@ -437,6 +467,7 @@ export default function SettingsPage() {
                     <TableHead>Urgency Options</TableHead>
                     <TableHead className="text-right">Price</TableHead>
                     <TableHead className="text-center">Active</TableHead>
+                    {isAdmin && <TableHead className="w-10" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -478,6 +509,18 @@ export default function SettingsPage() {
                           }
                         />
                       </TableCell>
+                      {isAdmin && (
+                        <TableCell>
+                          <button
+                            type="button"
+                            onClick={() => setDeletingTest(test)}
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all"
+                            title="Delete test"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -630,6 +673,34 @@ export default function SettingsPage() {
           <UserManagementSection />
         </TabsContent>
       </Tabs>
+
+      {/* ── Delete Test Confirmation ── */}
+      <AlertDialog open={!!deletingTest} onOpenChange={(open) => { if (!open) setDeletingTest(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" />
+              Delete Test
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently delete{" "}
+              <span className="font-semibold text-foreground">{deletingTest?.name}</span>?
+              This test will be removed from the catalog. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingTestBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteTest}
+              disabled={deletingTestBusy}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {deletingTestBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {deletingTestBusy ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
@@ -644,18 +715,25 @@ const CREATABLE_ROLES: { value: Role; label: string; description: string }[] = [
   { value: "accounts", label: "Accountant", description: "Billing & financial reports" },
 ]
 
+type UserRow = { id: string; name: string; email: string; role: Role }
+
 function UserManagementSection() {
   const { currentUser } = useStore()
-  const isAdmin = currentUser.role === "admin"
+  const isAdmin = currentUser?.role === "admin"
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [users, setUsers] = useState(MOCK_USERS)
+  const [users, setUsers] = useState<UserRow[]>([])
+  const [loadingUsers, setLoadingUsers] = useState(true)
 
-  const handleUserCreated = (user: { name: string; email: string; role: Role }) => {
-    const newUser = {
-      id: `u${Date.now()}`,
-      ...user,
-    }
-    setUsers((prev) => [...prev, newUser])
+  useEffect(() => {
+    fetch("/api/users")
+      .then((r) => r.json())
+      .then((data) => setUsers(data.users ?? []))
+      .catch(() => toast.error("Failed to load users."))
+      .finally(() => setLoadingUsers(false))
+  }, [])
+
+  const handleUserCreated = (user: UserRow) => {
+    setUsers((prev) => [...prev, user])
     toast.success(`User "${user.name}" created as ${user.role}.`)
   }
 
@@ -666,8 +744,8 @@ function UserManagementSection() {
           <div>
             <CardTitle className="text-base">System Users</CardTitle>
             <CardDescription>
-              {users.length} user(s) registered in the system.
-              {isAdmin ? " You can create new users." : " Only admins can manage users."}
+              {loadingUsers ? "Loading users…" : `${users.length} user(s) registered in the system.`}
+              {!loadingUsers && (isAdmin ? " You can create new users." : " Only admins can manage users.")}
             </CardDescription>
           </div>
           {isAdmin && (
@@ -762,21 +840,20 @@ function CreateUserModal({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onUserCreated: (user: { name: string; email: string; role: Role }) => void
+  onUserCreated: (user: UserRow) => void
 }) {
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [role, setRole] = useState<string>("")
   const [password, setPassword] = useState("")
+  const [saving, setSaving] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const reset = () => { setName(""); setEmail(""); setRole(""); setPassword("") }
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!name || !email || !role || !password) {
       toast.error("Please fill in all required fields.")
-      return
-    }
-    if (role === "admin") {
-      toast.error("You cannot create an admin user.")
       return
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -788,12 +865,23 @@ function CreateUserModal({
       toast.error("Password must be at least 6 characters.")
       return
     }
-    onUserCreated({ name, email, role: role as Role })
-    onOpenChange(false)
-    setName("")
-    setEmail("")
-    setRole("")
-    setPassword("")
+    setSaving(true)
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, role, password }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to create user.")
+      onUserCreated(data.user as UserRow)
+      onOpenChange(false)
+      reset()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create user.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -876,12 +964,12 @@ function CreateUserModal({
           </div>
 
           <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => { onOpenChange(false); reset() }} disabled={saving}>
               Cancel
             </Button>
-            <Button type="submit">
+            <Button type="submit" disabled={saving}>
               <UserPlus className="mr-1.5 h-4 w-4" />
-              Create User
+              {saving ? "Creating…" : "Create User"}
             </Button>
           </div>
         </form>

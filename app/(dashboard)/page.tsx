@@ -61,7 +61,7 @@ export default function DashboardPage() {
   const totalRevenue = getTotalRevenue()
   const totalUnpaid = unpaidInvoices.reduce((sum, inv) => sum + inv.balance, 0)
 
-  const [revenueHidden, setRevenueHidden] = useState(false)
+  const [revenueHidden, setRevenueHidden] = useState(true)
 
   return (
     <>
@@ -104,7 +104,7 @@ export default function DashboardPage() {
         <StatCard
           title="Unpaid Invoices"
           value={unpaidInvoices.length}
-          description={`Rs. ${totalUnpaid.toLocaleString()} outstanding`}
+          description={revenueHidden ? "Rs. •••••• outstanding" : `Rs. ${totalUnpaid.toLocaleString()} outstanding`}
           icon={Receipt}
         />
 
@@ -147,7 +147,7 @@ export default function DashboardPage() {
             <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-medium text-amber-800">
-                Outstanding Balance: Rs. {totalUnpaid.toLocaleString()}
+                Outstanding Balance: {revenueHidden ? "Rs. ••••••" : `Rs. ${totalUnpaid.toLocaleString()}`}
               </p>
               <p className="text-xs text-amber-700">
                 {unpaidInvoices.length} invoice{unpaidInvoices.length !== 1 ? "s" : ""} pending payment

@@ -64,7 +64,7 @@ export default function BillingPage() {
   const { invoices, getPatient, getDoctor, doctors, currentUser, collectPayment, hasPermission } = useStore()
   const [search, setSearch] = useState("")
   const [doctorFilter, setDoctorFilter] = useState("all")
-  const [amountsHidden, setAmountsHidden] = useState(false)
+  const [amountsHidden, setAmountsHidden] = useState(true)
   const [collectingInvoice, setCollectingInvoice] = useState<Invoice | null>(null)
 
   const canCollect = hasPermission("billing.collect")

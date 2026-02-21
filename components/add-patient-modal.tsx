@@ -21,6 +21,7 @@ import {
 import { useStore } from "@/lib/store"
 import { useState } from "react"
 import { toast } from "sonner"
+import { Loader2 } from "lucide-react"
 import { BLOOD_GROUPS } from "@/lib/constants"
 import { UserPlus } from "lucide-react"
 
@@ -30,7 +31,7 @@ interface AddPatientModalProps {
 }
 
 export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
-  const { doctors } = useStore()
+  const { doctors, addPatient } = useStore()
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
   const [gender, setGender] = useState<"male" | "female" | "">("")
@@ -40,6 +41,7 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
   const [email, setEmail] = useState("")
   const [address, setAddress] = useState("")
   const [notes, setNotes] = useState("")
+  const [saving, setSaving] = useState(false)
 
   // Phone: digits only, auto-format 03XX-XXXXXXX, max 11 digits
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -52,7 +54,7 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
     setBloodGroup(""); setDoctorId(""); setEmail(""); setAddress(""); setNotes("")
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!name || !phone || !gender || !age) {
       toast.error("Please fill in all required fields.")
@@ -63,9 +65,29 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
       toast.error("Phone must be 11 digits starting with 03 (e.g. 0300-1234567).")
       return
     }
-    toast.success(`Patient "${name}" registered successfully.`)
-    onOpenChange(false)
-    reset()
+    setSaving(true)
+    try {
+      await addPatient({
+        name: name.trim(),
+        phone,
+        email: email.trim(),
+        gender: gender as "male" | "female",
+        age: parseInt(age),
+        dateOfBirth: "",
+        address: address.trim(),
+        bloodGroup: bloodGroup || undefined,
+        tags: [],
+        notes: notes.trim(),
+        assignedDoctorId: doctorId,
+      })
+      toast.success(`Patient "${name}" registered successfully.`)
+      onOpenChange(false)
+      reset()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to register patient.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -254,9 +276,13 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
             >
               Cancel
             </Button>
-            <Button type="submit" className="px-6 gap-1.5">
-              <UserPlus className="h-4 w-4" />
-              Register Patient
+            <Button type="submit" className="px-6 gap-1.5" disabled={saving}>
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <UserPlus className="h-4 w-4" />
+              )}
+              {saving ? "Registering…" : "Register Patient"}
             </Button>
           </div>
         </form>

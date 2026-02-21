@@ -40,6 +40,8 @@ type ViewMode = "day" | "week" | "month"
 
 const HOURS = Array.from({ length: 10 }, (_, i) => i + 8) // 8am to 5pm
 
+const TODAY = new Date().toISOString().split("T")[0]
+
 function formatDate(dateStr: string) {
   const d = new Date(dateStr + "T00:00:00")
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
@@ -90,7 +92,7 @@ function navigateDate(dateStr: string, view: ViewMode, dir: number): string {
 export default function AppointmentsPage() {
   const { appointments, doctors, getPatient, getDoctor, getInvoice } = useStore()
   const [view, setView] = useState<ViewMode>("week")
-  const [currentDate, setCurrentDate] = useState("2026-02-20")
+  const [currentDate, setCurrentDate] = useState(TODAY)
   const [doctorFilter, setDoctorFilter] = useState<string>("all")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [showAddModal, setShowAddModal] = useState(false)
@@ -145,7 +147,7 @@ export default function AppointmentsPage() {
               <Button variant="outline" size="icon" onClick={() => setCurrentDate(navigateDate(currentDate, view, 1))}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setCurrentDate("2026-02-20")}>
+              <Button variant="ghost" size="sm" onClick={() => setCurrentDate(TODAY)}>
                 Today
               </Button>
             </div>
@@ -243,7 +245,7 @@ export default function AppointmentsPage() {
               {/* Week Header */}
               <div className="grid grid-cols-7 border-b border-border/60">
                 {getWeekDates(currentDate).map((date) => {
-                  const isToday = date === "2026-02-20"
+                  const isToday = date === TODAY
                   return (
                     <div
                       key={date}
@@ -305,7 +307,7 @@ export default function AppointmentsPage() {
                 <div key={wi} className="grid grid-cols-7 border-b border-border/60 last:border-b-0">
                   {week.map((date) => {
                     const isCurrentMonth = new Date(date + "T00:00:00").getMonth() === new Date(currentDate + "T00:00:00").getMonth()
-                    const isToday = date === "2026-02-20"
+                    const isToday = date === TODAY
                     const dayAppts = getAppointmentsForDate(date)
                     return (
                       <div

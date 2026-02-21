@@ -7,6 +7,8 @@ import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Table,
   TableBody,
@@ -24,14 +26,38 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Plus,
   Search,
   ChevronRight,
   Phone,
   Users,
   Stethoscope,
+  Pencil,
+  Trash2,
+  Loader2,
+  UserPen,
 } from "lucide-react"
 import { AddPatientModal } from "@/components/add-patient-modal"
+import { toast } from "sonner"
+import { BLOOD_GROUPS } from "@/lib/constants"
+import type { Patient } from "@/lib/types"
 
 // Avatar color palette — cycles through based on first char code
 const AVATAR_COLORS = [
@@ -50,11 +76,15 @@ function getAvatarColor(name: string) {
 }
 
 export default function PatientsPage() {
-  const { patients, doctors, getPatientInvoices } = useStore()
+  const { patients, doctors, getPatientInvoices, currentUser, deletePatient, updatePatient } = useStore()
+  const isAdmin = currentUser?.role === "admin"
   const [search, setSearch] = useState("")
   const [genderFilter, setGenderFilter] = useState<string>("all")
   const [doctorFilter, setDoctorFilter] = useState<string>("all")
   const [showAddModal, setShowAddModal] = useState(false)
+  const [editingPatient, setEditingPatient] = useState<Patient | null>(null)
+  const [deletingPatient, setDeletingPatient] = useState<Patient | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const filteredPatients = useMemo(() => {
     return patients.filter((p) => {
@@ -76,6 +106,20 @@ export default function PatientsPage() {
 
   const maleCount = patients.filter((p) => p.gender === "male").length
   const femaleCount = patients.filter((p) => p.gender === "female").length
+
+  const handleDelete = async () => {
+    if (!deletingPatient) return
+    setDeleting(true)
+    try {
+      await deletePatient(deletingPatient.id)
+      toast.success(`Patient "${deletingPatient.name}" deleted.`)
+      setDeletingPatient(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete patient.")
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   return (
     <>
@@ -304,14 +348,36 @@ export default function PatientsPage() {
                         </div>
                       </TableCell>
 
-                      {/* View */}
+                      {/* Actions */}
                       <TableCell className="pr-4 py-3">
-                        <Link
-                          href={`/patients/${patient.id}`}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all"
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </Link>
+                        <div className="flex items-center gap-1">
+                          {isAdmin && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setEditingPatient(patient)}
+                                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                                title="Edit patient"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeletingPatient(patient)}
+                                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all"
+                                title="Delete patient"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )}
+                          <Link
+                            href={`/patients/${patient.id}`}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 text-muted-foreground hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all"
+                          >
+                            <ChevronRight className="h-4 w-4" />
+                          </Link>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )
@@ -323,6 +389,230 @@ export default function PatientsPage() {
       </Card>
 
       <AddPatientModal open={showAddModal} onOpenChange={setShowAddModal} />
+
+      {/* ── Edit Patient Modal ── */}
+      {editingPatient && (
+        <EditPatientModal
+          patient={editingPatient}
+          onClose={() => setEditingPatient(null)}
+          onSaved={(updated) => {
+            updatePatient(editingPatient.id, updated)
+              .then(() => {
+                toast.success(`Patient "${updated.name ?? editingPatient.name}" updated.`)
+                setEditingPatient(null)
+              })
+              .catch((err: unknown) => {
+                toast.error(err instanceof Error ? err.message : "Failed to update patient.")
+              })
+          }}
+        />
+      )}
+
+      {/* ── Delete Confirmation ── */}
+      <AlertDialog open={!!deletingPatient} onOpenChange={(open) => { if (!open) setDeletingPatient(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" />
+              Delete Patient
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently delete{" "}
+              <span className="font-semibold text-foreground">{deletingPatient?.name}</span>?
+              This will remove all associated records. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {deleting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
+  )
+}
+
+// ─── Edit Patient Modal ────────────────────────────────────────────────────
+
+function EditPatientModal({
+  patient,
+  onClose,
+  onSaved,
+}: {
+  patient: Patient
+  onClose: () => void
+  onSaved: (data: Partial<Patient>) => void
+}) {
+  const { doctors } = useStore()
+  const [name, setName] = useState(patient.name)
+  const [phone, setPhone] = useState(patient.phone)
+  const [gender, setGender] = useState<"male" | "female" | "other">(patient.gender)
+  const [age, setAge] = useState(String(patient.age))
+  const [bloodGroup, setBloodGroup] = useState(patient.bloodGroup ?? "")
+  const [doctorId, setDoctorId] = useState(patient.assignedDoctorId ?? "")
+  const [email, setEmail] = useState(patient.email ?? "")
+  const [address, setAddress] = useState(patient.address ?? "")
+  const [notes, setNotes] = useState(patient.notes ?? "")
+  const [saving, setSaving] = useState(false)
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const digits = e.target.value.replace(/\D/g, "").slice(0, 11)
+    setPhone(digits.length > 4 ? `${digits.slice(0, 4)}-${digits.slice(4)}` : digits)
+  }
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!name || !phone || !gender || !age) {
+      toast.error("Please fill in all required fields.")
+      return
+    }
+    setSaving(true)
+    try {
+      onSaved({
+        name: name.trim(),
+        phone,
+        email: email.trim(),
+        gender,
+        age: parseInt(age),
+        address: address.trim(),
+        bloodGroup: bloodGroup || undefined,
+        notes: notes.trim(),
+        assignedDoctorId: doctorId,
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="sm:max-w-[740px] p-0 gap-0">
+        <div className="flex items-start gap-3 px-6 pt-6 pb-5 border-b border-border">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+            <UserPen className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <DialogTitle className="text-base font-semibold leading-tight">Edit Patient</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground mt-0.5">
+              Update the details for <span className="font-medium text-foreground">{patient.name}</span>.
+            </DialogDescription>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="px-6 py-5 flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ep-name" className="text-sm font-medium">
+                Full Name <span className="text-red-500">*</span>
+              </Label>
+              <Input id="ep-name" value={name} onChange={(e) => setName(e.target.value)} className="h-10" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ep-phone" className="text-sm font-medium">
+                Phone Number <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="ep-phone"
+                value={phone}
+                onChange={handlePhoneChange}
+                placeholder="0300-1234567"
+                inputMode="numeric"
+                maxLength={12}
+                className="h-10 font-mono tracking-wider"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-4 gap-4">
+            <div className="col-span-2 flex flex-col gap-1.5">
+              <Label className="text-sm font-medium">Gender <span className="text-red-500">*</span></Label>
+              <div className="grid grid-cols-2 gap-2 h-10">
+                {(["male", "female"] as const).map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    onClick={() => setGender(g)}
+                    className={`rounded-md border text-sm font-medium transition-all h-full capitalize ${
+                      gender === g
+                        ? g === "male"
+                          ? "border-blue-500 bg-blue-50 text-blue-700 ring-1 ring-blue-500/30"
+                          : "border-pink-500 bg-pink-50 text-pink-700 ring-1 ring-pink-500/30"
+                        : "border-input bg-background text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {g === "male" ? "♂  Male" : "♀  Female"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="col-span-1 flex flex-col gap-1.5">
+              <Label htmlFor="ep-age" className="text-sm font-medium">Age <span className="text-red-500">*</span></Label>
+              <Input id="ep-age" type="number" value={age} onChange={(e) => setAge(e.target.value)} className="h-10" min={0} max={150} />
+            </div>
+            <div className="col-span-1 flex flex-col gap-1.5">
+              <Label className="text-sm font-medium">Blood Group</Label>
+              <Select value={bloodGroup} onValueChange={setBloodGroup}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  {BLOOD_GROUPS.map((bg) => <SelectItem key={bg} value={bg}>{bg}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ep-email" className="text-sm font-medium">Email</Label>
+              <Input id="ep-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-10" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ep-address" className="text-sm font-medium">Address</Label>
+              <Input id="ep-address" value={address} onChange={(e) => setAddress(e.target.value)} className="h-10" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-sm font-medium">Assigned Doctor</Label>
+              <Select value={doctorId} onValueChange={setDoctorId}>
+                <SelectTrigger className="h-10"><SelectValue placeholder="Select a doctor (optional)" /></SelectTrigger>
+                <SelectContent>
+                  {doctors.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name} <span className="text-xs text-muted-foreground">· {d.specialty}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ep-notes" className="text-sm font-medium">Notes</Label>
+              <Textarea
+                id="ep-notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={3}
+                className="resize-none text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 mt-1 border-t border-border">
+            <Button type="button" variant="outline" onClick={onClose} className="px-6">Cancel</Button>
+            <Button type="submit" className="px-6 gap-1.5" disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPen className="h-4 w-4" />}
+              {saving ? "Saving…" : "Save Changes"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
