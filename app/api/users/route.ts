@@ -19,37 +19,42 @@ export async function POST(request: NextRequest) {
   if (!user || user.role !== "admin")
     return NextResponse.json({ error: "Forbidden — only admin can create users" }, { status: 403 })
 
-  await connectDB()
-  const body = await request.json()
+  try {
+    await connectDB()
+    const body = await request.json()
 
-  // Check email uniqueness
-  const existing = await User.findOne({ email: body.email?.toLowerCase() })
-  if (existing) return NextResponse.json({ error: "Email already in use" }, { status: 409 })
+    // Check email uniqueness
+    const existing = await User.findOne({ email: body.email?.toLowerCase() })
+    if (existing) return NextResponse.json({ error: "Email already in use" }, { status: 409 })
 
-  // If creating a doctor user, also create a Doctor record
-  let doctorId: string | undefined
-  if (body.role === "doctor") {
-    const doctor = await Doctor.create({
+    // If creating a doctor user, also create a Doctor record
+    let doctorId: string | undefined
+    if (body.role === "doctor") {
+      const doctor = await Doctor.create({
+        name: body.name,
+        specialty: body.specialty || "General Medicine",
+        type: body.doctorType || "full-time",
+        phone: body.phone || "",
+        email: body.email || "",
+        consultationFee: body.consultationFee || 1500,
+        schedule: [],
+        isActive: true,
+      })
+      doctorId = doctor._id.toString()
+    }
+
+    const newUser = await User.create({
       name: body.name,
-      specialty: body.specialty || "General Medicine",
-      type: body.doctorType || "full-time",
-      phone: body.phone || "",
-      email: body.email || "",
-      consultationFee: body.consultationFee || 1500,
-      schedule: [],
+      email: body.email,
+      password: body.password,
+      role: body.role,
+      doctorId,
       isActive: true,
     })
-    doctorId = doctor._id.toString()
+
+    return NextResponse.json({ data: newUser.toJSON() }, { status: 201 })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to create user"
+    return NextResponse.json({ error: message }, { status: 500 })
   }
-
-  const newUser = await User.create({
-    name: body.name,
-    email: body.email,
-    password: body.password,
-    role: body.role,
-    doctorId,
-    isActive: true,
-  })
-
-  return NextResponse.json({ data: newUser.toJSON() }, { status: 201 })
 }

@@ -37,14 +37,18 @@ const UserSchema = new Schema<IUser>(
   }
 )
 
-UserSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next()
+UserSchema.pre("save", async function () {
+  if (!this.isModified("password")) return
   this.password = await bcrypt.hash(this.password, 12)
-  next()
 })
 
 UserSchema.methods.comparePassword = function (candidate: string) {
   return bcrypt.compare(candidate, this.password)
+}
+
+// In development, delete the cached model so hot-reloads pick up schema changes
+if (process.env.NODE_ENV !== "production") {
+  delete (mongoose.models as Record<string, unknown>).User
 }
 
 const User: Model<IUser> = mongoose.models.User || mongoose.model<IUser>("User", UserSchema)

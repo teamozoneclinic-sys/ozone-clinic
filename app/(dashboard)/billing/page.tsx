@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { StatusBadge } from "@/components/status-badge"
@@ -62,6 +63,7 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
 
 export default function BillingPage() {
   const { invoices, getPatient, getDoctor, doctors, currentUser, collectPayment, hasPermission } = useStore()
+  const router = useRouter()
   const [search, setSearch] = useState("")
   const [doctorFilter, setDoctorFilter] = useState("all")
   const [amountsHidden, setAmountsHidden] = useState(true)
@@ -106,8 +108,8 @@ export default function BillingPage() {
       .reduce((s, p) => s + p.amount, 0)
   }, 0)
 
-  const handleCollect = (invoiceId: string, amount: number, method: PaymentMethod, reference: string, notes: string) => {
-    collectPayment(invoiceId, {
+  const handleCollect = async (invoiceId: string, amount: number, method: PaymentMethod, reference: string, notes: string) => {
+    await collectPayment(invoiceId, {
       invoiceId,
       amount,
       method,
@@ -118,6 +120,7 @@ export default function BillingPage() {
     })
     toast.success(`Rs. ${amount.toLocaleString()} collected successfully.`)
     setCollectingInvoice(null)
+    router.push(`/billing/${invoiceId}`)
   }
 
   return (
@@ -423,7 +426,7 @@ function CollectPaymentModal({
   collectedBy: string
   amountsHidden: boolean
   getPatient: ReturnType<typeof useStore>["getPatient"]
-  onConfirm: (invoiceId: string, amount: number, method: PaymentMethod, reference: string, notes: string) => void
+  onConfirm: (invoiceId: string, amount: number, method: PaymentMethod, reference: string, notes: string) => Promise<void>
   onClose: () => void
 }) {
   const patient = getPatient(invoice.patientId)
@@ -431,8 +434,9 @@ function CollectPaymentModal({
   const [method, setMethod] = useState<PaymentMethod>("cash")
   const [reference, setReference] = useState("")
   const [notes, setNotes] = useState("")
+  const [saving, setSaving] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const parsed = parseFloat(amount)
     if (!parsed || parsed <= 0) {
@@ -443,7 +447,13 @@ function CollectPaymentModal({
       toast.error(`Amount cannot exceed the outstanding balance of Rs. ${invoice.balance.toLocaleString()}.`)
       return
     }
-    onConfirm(invoice.id, parsed, method, reference, notes)
+    setSaving(true)
+    try {
+      await onConfirm(invoice.id, parsed, method, reference, notes)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to collect payment.")
+      setSaving(false)
+    }
   }
 
   return (
@@ -531,12 +541,12 @@ function CollectPaymentModal({
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-2 border-t border-border">
-            <Button type="button" variant="outline" onClick={onClose} className="px-5">
+            <Button type="button" variant="outline" onClick={onClose} className="px-5" disabled={saving}>
               Cancel
             </Button>
-            <Button type="submit" className="px-5 gap-1.5 bg-emerald-600 hover:bg-emerald-700">
+            <Button type="submit" className="px-5 gap-1.5 bg-emerald-600 hover:bg-emerald-700" disabled={saving}>
               <CreditCard className="h-4 w-4" />
-              Confirm Payment
+              {saving ? "Processing…" : "Confirm Payment"}
             </Button>
           </div>
         </form>

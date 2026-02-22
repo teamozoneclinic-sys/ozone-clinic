@@ -30,7 +30,17 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { FlaskConical, Search, Plus, Pencil, TestTube } from "lucide-react"
+import { FlaskConical, Search, Plus, Pencil, TestTube, Trash2, Loader2 } from "lucide-react"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 import type { TestCatalogItem } from "@/lib/types"
 
@@ -60,15 +70,32 @@ const CATEGORY_COLORS: Record<string, string> = {
 }
 
 export default function CatalogPage() {
-  const { testCatalog, hasPermission } = useStore()
+  const { testCatalog, hasPermission, currentUser, deleteTestCatalogItem } = useStore()
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingTest, setEditingTest] = useState<TestCatalogItem | null>(null)
+  const [deletingTest, setDeletingTest] = useState<TestCatalogItem | null>(null)
+  const [deletingBusy, setDeletingBusy] = useState(false)
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
 
   const canEdit = hasPermission("settings.edit")
+  const isAdmin = currentUser?.role === "admin"
+
+  const handleDeleteTest = async () => {
+    if (!deletingTest) return
+    setDeletingBusy(true)
+    try {
+      await deleteTestCatalogItem(deletingTest.id)
+      toast.success(`"${deletingTest.name}" deleted from catalog.`)
+      setDeletingTest(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete test.")
+    } finally {
+      setDeletingBusy(false)
+    }
+  }
 
   const uniqueCategories = useMemo(
     () => Array.from(new Set(testCatalog.map((t) => t.category))).sort(),
@@ -177,7 +204,7 @@ export default function CatalogPage() {
                 <TableHead>Urgency Options</TableHead>
                 <TableHead className="text-right">Price (Rs.)</TableHead>
                 <TableHead>Status</TableHead>
-                {canEdit && <TableHead className="w-10" />}
+                {canEdit && <TableHead className="w-20" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -238,14 +265,28 @@ export default function CatalogPage() {
                     </TableCell>
                     {canEdit && (
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => setEditingTest(test)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => setEditingTest(test)}
+                            title="Edit test"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          {isAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-red-600 hover:bg-red-50"
+                              onClick={() => setDeletingTest(test)}
+                              title="Delete test"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     )}
                   </TableRow>
@@ -267,6 +308,34 @@ export default function CatalogPage() {
         }}
         editTest={editingTest}
       />
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!deletingTest} onOpenChange={(open) => { if (!open) setDeletingTest(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" />
+              Delete Test
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently delete{" "}
+              <span className="font-semibold text-foreground">{deletingTest?.name}</span>?
+              This test will be removed from the catalog. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteTest}
+              disabled={deletingBusy}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {deletingBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {deletingBusy ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

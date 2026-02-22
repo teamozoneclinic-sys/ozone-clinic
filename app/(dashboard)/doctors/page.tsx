@@ -15,6 +15,16 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Plus,
   Search,
   Phone,
@@ -24,9 +34,15 @@ import {
   Clock,
   BadgeCheck,
   CircleDashed,
+  Pencil,
+  Trash2,
+  Loader2,
 } from "lucide-react"
 import { AddDoctorModal } from "@/components/add-doctor-modal"
+import { EditDoctorModal } from "@/components/edit-doctor-modal"
 import { DOCTOR_TYPES, SPECIALTIES } from "@/lib/constants"
+import type { Doctor } from "@/lib/types"
+import { toast } from "sonner"
 
 // ─── Avatar colors cycling by name charCode ──────────────────────────────
 const AVATAR_COLORS = [
@@ -59,14 +75,18 @@ const DAY_ABBR: Record<string, string> = {
 }
 
 export default function DoctorsPage() {
-  const { doctors, getDoctorAppointments, hasPermission } = useStore()
+  const { doctors, getDoctorAppointments, hasPermission, updateDoctor, deleteDoctor, currentUser } = useStore()
   const [search, setSearch] = useState("")
   const [specialtyFilter, setSpecialtyFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [showAddModal, setShowAddModal] = useState(false)
+  const [editingDoctor, setEditingDoctor] = useState<Doctor | null>(null)
+  const [deletingDoctor, setDeletingDoctor] = useState<Doctor | null>(null)
+  const [deletingBusy, setDeletingBusy] = useState(false)
 
   const canAdd = hasPermission("doctors.create")
+  const isAdmin = currentUser?.role === "admin"
 
   const filteredDoctors = useMemo(() => {
     return doctors.filter((d) => {
@@ -87,6 +107,27 @@ export default function DoctorsPage() {
 
   const activeCount = doctors.filter((d) => d.isActive).length
   const specialtiesCount = new Set(doctors.map((d) => d.specialty)).size
+
+  const handleSaveDoctor = async (data: Partial<Doctor>) => {
+    if (!editingDoctor) return
+    await updateDoctor(editingDoctor.id, data)
+    toast.success("Doctor updated successfully.")
+    setEditingDoctor(null)
+  }
+
+  const handleDeleteDoctor = async () => {
+    if (!deletingDoctor) return
+    setDeletingBusy(true)
+    try {
+      await deleteDoctor(deletingDoctor.id)
+      toast.success(`${deletingDoctor.name} has been removed.`)
+      setDeletingDoctor(null)
+    } catch {
+      toast.error("Failed to delete doctor.")
+    } finally {
+      setDeletingBusy(false)
+    }
+  }
 
   return (
     <>
@@ -208,7 +249,7 @@ export default function DoctorsPage() {
 
                   <div className="p-5 flex flex-col gap-4">
 
-                    {/* ── Header: avatar + name + badges ── */}
+                    {/* ── Header: avatar + name + badges + actions ── */}
                     <div className="flex items-start gap-3">
                       <div
                         className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-xl font-bold ${avatarColor}`}
@@ -246,6 +287,29 @@ export default function DoctorsPage() {
                           )}
                         </div>
                       </div>
+                      {/* ── Admin action buttons ── */}
+                      {isAdmin && (
+                        <div className="flex flex-col gap-1 shrink-0">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-muted-foreground hover:text-primary"
+                            onClick={() => setEditingDoctor(doctor)}
+                            title="Edit doctor"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => setDeletingDoctor(doctor)}
+                            title="Delete doctor"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      )}
                     </div>
 
                     {/* ── Divider ── */}
@@ -269,7 +333,6 @@ export default function DoctorsPage() {
 
                     {/* ── Schedule days (grouped, multi-slot aware) ── */}
                     {doctor.schedule.length > 0 && (() => {
-                      // Group slots by day preserving DAYS_OF_WEEK order
                       const grouped: Record<string, { startTime: string; endTime: string }[]> = {}
                       doctor.schedule.forEach((s) => {
                         if (!grouped[s.day]) grouped[s.day] = []
@@ -338,6 +401,36 @@ export default function DoctorsPage() {
       )}
 
       <AddDoctorModal open={showAddModal} onOpenChange={setShowAddModal} />
+
+      {editingDoctor && (
+        <EditDoctorModal
+          doctor={editingDoctor}
+          onClose={() => setEditingDoctor(null)}
+          onSave={handleSaveDoctor}
+        />
+      )}
+
+      <AlertDialog open={!!deletingDoctor} onOpenChange={(v) => { if (!v) setDeletingDoctor(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Doctor</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove <strong>{deletingDoctor?.name}</strong>? This action cannot be undone and will delete all associated data.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteDoctor}
+              disabled={deletingBusy}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deletingBusy ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

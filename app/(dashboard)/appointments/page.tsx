@@ -35,12 +35,13 @@ import {
 import { AddAppointmentModal } from "@/components/add-appointment-modal"
 import type { Appointment } from "@/lib/types"
 import Link from "next/link"
+import { getPKTDateString, toPKTDateString } from "@/lib/pkt"
 
 type ViewMode = "day" | "week" | "month"
 
 const HOURS = Array.from({ length: 10 }, (_, i) => i + 8) // 8am to 5pm
 
-const TODAY = new Date().toISOString().split("T")[0]
+const TODAY = getPKTDateString()
 
 function formatDate(dateStr: string) {
   const d = new Date(dateStr + "T00:00:00")
@@ -55,7 +56,7 @@ function getWeekDates(baseDate: string): string[] {
   return Array.from({ length: 7 }, (_, i) => {
     const date = new Date(monday)
     date.setDate(monday.getDate() + i)
-    return date.toISOString().split("T")[0]
+    return toPKTDateString(date)
   })
 }
 
@@ -72,7 +73,7 @@ function getMonthDates(baseDate: string): string[][] {
   while (current <= lastDay || weeks.length < 6) {
     const week: string[] = []
     for (let i = 0; i < 7; i++) {
-      week.push(current.toISOString().split("T")[0])
+      week.push(toPKTDateString(current))
       current.setDate(current.getDate() + 1)
     }
     weeks.push(week)
@@ -86,11 +87,19 @@ function navigateDate(dateStr: string, view: ViewMode, dir: number): string {
   if (view === "day") d.setDate(d.getDate() + dir)
   else if (view === "week") d.setDate(d.getDate() + dir * 7)
   else d.setMonth(d.getMonth() + dir)
-  return d.toISOString().split("T")[0]
+  return toPKTDateString(d)
 }
 
 export default function AppointmentsPage() {
-  const { appointments, doctors, getPatient, getDoctor, getInvoice } = useStore()
+  const { appointments, doctors, currentUser, getPatient, getDoctor, getInvoice } = useStore()
+
+  // For doctor role, lock the filter to their own doctor record
+  const isDoctor = currentUser?.role === "doctor"
+  const myDoctorId = useMemo(() => {
+    if (!isDoctor) return null
+    return doctors.find((d) => d.email === currentUser?.email)?.id ?? null
+  }, [isDoctor, doctors, currentUser])
+
   const [view, setView] = useState<ViewMode>("week")
   const [currentDate, setCurrentDate] = useState(TODAY)
   const [doctorFilter, setDoctorFilter] = useState<string>("all")
@@ -100,11 +109,13 @@ export default function AppointmentsPage() {
 
   const filteredAppointments = useMemo(() => {
     return appointments.filter((a) => {
+      // Doctor role: always restrict to their own appointments
+      if (myDoctorId) return a.doctorId === myDoctorId && (statusFilter === "all" || a.status === statusFilter)
       const matchDoctor = doctorFilter === "all" || a.doctorId === doctorFilter
       const matchStatus = statusFilter === "all" || a.status === statusFilter
       return matchDoctor && matchStatus
     })
-  }, [appointments, doctorFilter, statusFilter])
+  }, [appointments, doctorFilter, statusFilter, myDoctorId])
 
   const getAppointmentsForDate = (date: string) =>
     filteredAppointments.filter((a) => a.date === date)
@@ -125,7 +136,7 @@ export default function AppointmentsPage() {
     <>
       <PageHeader
         title="Appointments"
-        description="Schedule and manage patient appointments."
+        description={isDoctor ? "Your scheduled patient appointments." : "Schedule and manage patient appointments."}
         breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Appointments" }]}
         actions={
           <Button size="sm" onClick={() => setShowAddModal(true)}>
@@ -152,17 +163,19 @@ export default function AppointmentsPage() {
               </Button>
             </div>
             <div className="flex items-center gap-2">
-              <Select value={doctorFilter} onValueChange={setDoctorFilter}>
-                <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="All Doctors" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Doctors</SelectItem>
-                  {doctors.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {!isDoctor && (
+                <Select value={doctorFilter} onValueChange={setDoctorFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="All Doctors" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Doctors</SelectItem>
+                    {doctors.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-[150px]">
                   <SelectValue placeholder="All Statuses" />

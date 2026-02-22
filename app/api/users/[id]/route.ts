@@ -7,16 +7,27 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const user = await getRequestUser(request)
   if (!user || user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
-  await connectDB()
-  const { id } = await params
-  const body = await request.json()
+  try {
+    await connectDB()
+    const { id } = await params
+    const body = await request.json()
 
-  // Don't allow password update through this route — use separate endpoint
-  delete body.password
+    const target = await User.findById(id)
+    if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
-  const updated = await User.findByIdAndUpdate(id, body, { new: true })
-  if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 })
-  return NextResponse.json({ data: updated.toJSON() })
+    if (body.name) target.name = body.name.trim()
+    if (body.email) target.email = body.email.trim().toLowerCase()
+    // Allow password update — pre-save hook will hash it
+    if (body.password && body.password.length >= 6) {
+      target.password = body.password
+    }
+
+    await target.save()
+    return NextResponse.json({ data: target.toJSON() })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to update user"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

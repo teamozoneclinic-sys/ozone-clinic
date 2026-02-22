@@ -20,8 +20,10 @@ import type {
   TestCatalogItem,
   AuditLogEntry,
   Permission,
+  ClinicInfo,
 } from "./types"
-import { ROLE_PERMISSIONS } from "./constants"
+import { ROLE_PERMISSIONS, DEFAULT_CLINIC_INFO } from "./constants"
+import { getPKTDateString } from "./pkt"
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -64,6 +66,8 @@ interface StoreState {
   deletePatient: (id: string) => Promise<void>
   deleteTestCatalogItem: (id: string) => Promise<void>
   addDoctor: (data: Omit<Doctor, "id">) => Promise<void>
+  updateDoctor: (id: string, data: Partial<Doctor>) => Promise<void>
+  deleteDoctor: (id: string) => Promise<void>
   addAppointment: (data: {
     patientId: string
     doctorId: string
@@ -93,6 +97,10 @@ interface StoreState {
   getUnpaidInvoices: () => Invoice[]
   getTotalRevenue: () => number
   getTreatmentByAppointment: (appointmentId: string) => Treatment | undefined
+
+  // Clinic settings
+  clinicSettings: ClinicInfo
+  updateClinicSettings: (data: Partial<ClinicInfo>) => Promise<void>
 }
 
 const StoreContext = createContext<StoreState | undefined>(undefined)
@@ -107,12 +115,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [testCatalog, setTestCatalog] = useState<TestCatalogItem[]>([])
   const [auditLog] = useState<AuditLogEntry[]>([])
+  const [clinicSettings, setClinicSettings] = useState<ClinicInfo>(DEFAULT_CLINIC_INFO)
 
   // ── Fetch all data ────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [meRes, patientsRes, doctorsRes, appointmentsRes, treatmentsRes, invoicesRes, catalogRes] =
+      const [meRes, patientsRes, doctorsRes, appointmentsRes, treatmentsRes, invoicesRes, catalogRes, clinicRes] =
         await Promise.all([
           apiFetch<{ user: User }>("/api/auth/me"),
           apiFetch<{ data: Patient[] }>("/api/patients"),
@@ -121,6 +130,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           apiFetch<{ data: Treatment[] }>("/api/treatments"),
           apiFetch<{ data: Invoice[] }>("/api/invoices"),
           apiFetch<{ data: TestCatalogItem[] }>("/api/catalog"),
+          apiFetch<{ data: ClinicInfo }>("/api/clinic-settings"),
         ])
       setCurrentUser(meRes.user)
       setPatients(patientsRes.data)
@@ -129,6 +139,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setTreatments(treatmentsRes.data)
       setInvoices(invoicesRes.data)
       setTestCatalog(catalogRes.data)
+      setClinicSettings(clinicRes.data)
     } catch (err) {
       console.error("Store fetch error:", err)
     } finally {
@@ -192,6 +203,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setDoctors((prev) => [...prev, res.data])
   }, [])
 
+  const updateDoctor = useCallback(async (id: string, data: Partial<Doctor>) => {
+    const res = await apiFetch<{ data: Doctor }>(`/api/doctors/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+    setDoctors((prev) => prev.map((d) => (d.id === id ? res.data : d)))
+  }, [])
+
+  const deleteDoctor = useCallback(async (id: string) => {
+    await apiFetch(`/api/doctors/${id}`, { method: "DELETE" })
+    setDoctors((prev) => prev.filter((d) => d.id !== id))
+  }, [])
+
   const addAppointment = useCallback(
     async (data: {
       patientId: string
@@ -233,6 +257,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(data),
       })
       setTreatments((prev) => [res.data, ...prev])
+      // Reflect the new medical history entry in local patient state
+      setPatients((prev) =>
+        prev.map((p) => {
+          if (p.id !== data.patientId) return p
+          return {
+            ...p,
+            medicalHistory: [
+              ...(p.medicalHistory ?? []),
+              {
+                id: res.data.id,
+                date: data.date,
+                type: "Visit",
+                description: `Diagnosis: ${data.diagnosis}${data.complaint ? `. Complaint: ${data.complaint}` : ""}`,
+                addedBy: data.doctorId,
+              },
+            ],
+          }
+        })
+      )
       return res.data
     },
     []
@@ -248,6 +291,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     []
   )
+
+  const updateClinicSettings = useCallback(async (data: Partial<ClinicInfo>) => {
+    const res = await apiFetch<{ data: ClinicInfo }>("/api/clinic-settings", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+    setClinicSettings(res.data)
+  }, [])
 
   // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -280,7 +331,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   const getTodayAppointments = useCallback(() => {
-    const today = new Date().toISOString().split("T")[0]
+    const today = getPKTDateString()
     return appointments
       .filter((a) => a.date === today && a.status !== "cancelled")
       .sort((a, b) => a.time.localeCompare(b.time))
@@ -320,6 +371,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         deletePatient,
         deleteTestCatalogItem,
         addDoctor,
+        updateDoctor,
+        deleteDoctor,
         addAppointment,
         collectPayment,
         createTreatment,
@@ -338,6 +391,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         getUnpaidInvoices,
         getTotalRevenue,
         getTreatmentByAppointment,
+        clinicSettings,
+        updateClinicSettings,
       }}
     >
       {children}

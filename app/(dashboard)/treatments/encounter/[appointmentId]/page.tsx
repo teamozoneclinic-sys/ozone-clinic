@@ -30,7 +30,9 @@ import {
   X,
   CheckCircle2,
   ChevronRight,
+  History,
 } from "lucide-react"
+import type { Treatment } from "@/lib/types"
 import Link from "next/link"
 import { toast } from "sonner"
 
@@ -56,6 +58,7 @@ export default function EncounterPage({
     getDoctor,
     getInvoice,
     getTreatmentByAppointment,
+    getPatientTreatments,
     createTreatment,
     testCatalog,
     currentUser,
@@ -166,6 +169,10 @@ export default function EncounterPage({
     )
   }
 
+  const previousTreatments = getPatientTreatments(appointment.patientId)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 5)
+
   return (
     <EncounterForm
       appointmentId={appointmentId}
@@ -174,6 +181,7 @@ export default function EncounterPage({
       doctor={doctor}
       createTreatment={createTreatment}
       testCatalog={testCatalog}
+      previousTreatments={previousTreatments}
       router={router}
     />
   )
@@ -188,6 +196,7 @@ function EncounterForm({
   doctor,
   createTreatment,
   testCatalog,
+  previousTreatments,
   router,
 }: {
   appointmentId: string
@@ -196,6 +205,7 @@ function EncounterForm({
   doctor: ReturnType<ReturnType<typeof useStore>["getDoctor"]>
   createTreatment: ReturnType<typeof useStore>["createTreatment"]
   testCatalog: ReturnType<typeof useStore>["testCatalog"]
+  previousTreatments: Treatment[]
   router: ReturnType<typeof useRouter>
 }) {
   const [activeSection, setActiveSection] = useState<Section>("notes")
@@ -649,6 +659,37 @@ function EncounterForm({
               )}
             </CardContent>
           </Card>
+
+          {/* Previous visits */}
+          {previousTreatments.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-1.5 text-sm">
+                  <History className="h-3.5 w-3.5" />
+                  Previous Visits ({previousTreatments.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-2">
+                {previousTreatments.map((tr) => (
+                  <Link
+                    key={tr.id}
+                    href={`/treatments/${tr.id}`}
+                    className="block rounded-md border border-border/60 px-2.5 py-2 text-xs hover:bg-accent/40 transition-colors"
+                  >
+                    <p className="font-medium text-foreground leading-tight truncate">
+                      {tr.diagnosis}
+                    </p>
+                    <p className="text-muted-foreground mt-0.5">{tr.date}</p>
+                    {tr.complaint && (
+                      <p className="text-muted-foreground truncate mt-0.5 italic">
+                        {tr.complaint}
+                      </p>
+                    )}
+                  </Link>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Finalize actions */}
           <div className="flex flex-col gap-2">

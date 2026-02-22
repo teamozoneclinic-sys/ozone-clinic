@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { StatCard } from "@/components/stat-card"
@@ -14,7 +14,6 @@ import {
   Receipt,
   TrendingUp,
   Plus,
-  Clock,
   AlertTriangle,
   Eye,
   EyeOff,
@@ -48,6 +47,9 @@ const REMINDERS = [
 export default function DashboardPage() {
   const {
     patients,
+    doctors,
+    currentUser,
+    hasPermission,
     getTodayAppointments,
     getUnpaidInvoices,
     getTotalRevenue,
@@ -56,33 +58,57 @@ export default function DashboardPage() {
     getInvoice,
   } = useStore()
 
-  const todayAppointments = getTodayAppointments()
+  const isDoctor = currentUser?.role === "doctor"
+  const canSeeBilling = hasPermission("billing.view")
+
+  // For doctor role, find their doctor record and filter to their appointments
+  const myDoctorId = useMemo(() => {
+    if (!isDoctor) return null
+    return doctors.find((d) => d.email === currentUser?.email)?.id ?? null
+  }, [isDoctor, doctors, currentUser])
+
+  const allTodayAppointments = getTodayAppointments()
+  const todayAppointments = useMemo(() =>
+    myDoctorId
+      ? allTodayAppointments.filter((a) => a.doctorId === myDoctorId)
+      : allTodayAppointments,
+    [allTodayAppointments, myDoctorId]
+  )
+
   const unpaidInvoices = getUnpaidInvoices()
   const totalRevenue = getTotalRevenue()
   const totalUnpaid = unpaidInvoices.reduce((sum, inv) => sum + inv.balance, 0)
 
   const [revenueHidden, setRevenueHidden] = useState(true)
 
+  const pageDescription = isDoctor
+    ? "Your patient schedule and clinical overview."
+    : "Overview of your clinic operations today."
+
   return (
     <>
       <PageHeader
         title="Dashboard"
-        description="Overview of your clinic operations today."
+        description={pageDescription}
         breadcrumbs={[{ label: "Dashboard" }]}
         actions={
           <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href="/patients?action=add">
-                <Plus className="mr-1 h-4 w-4" />
-                Add Patient
-              </Link>
-            </Button>
-            <Button asChild size="sm">
-              <Link href="/appointments?action=add">
-                <CalendarDays className="mr-1 h-4 w-4" />
-                Book Appointment
-              </Link>
-            </Button>
+            {hasPermission("patients.create") && (
+              <Button asChild variant="outline" size="sm">
+                <Link href="/patients?action=add">
+                  <Plus className="mr-1 h-4 w-4" />
+                  Add Patient
+                </Link>
+              </Button>
+            )}
+            {hasPermission("appointments.create") && (
+              <Button asChild size="sm">
+                <Link href="/appointments?action=add">
+                  <CalendarDays className="mr-1 h-4 w-4" />
+                  Book Appointment
+                </Link>
+              </Button>
+            )}
           </div>
         }
       />
@@ -90,9 +116,9 @@ export default function DashboardPage() {
       {/* ── Stat Cards ── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          title="Total Patients"
-          value={patients.length}
-          description="Registered patients"
+          title={isDoctor ? "My Patients Today" : "Total Patients"}
+          value={isDoctor ? todayAppointments.length : patients.length}
+          description={isDoctor ? "Appointments scheduled" : "Registered patients"}
           icon={Users}
         />
         <StatCard
@@ -101,47 +127,51 @@ export default function DashboardPage() {
           description="Scheduled for today"
           icon={CalendarDays}
         />
-        <StatCard
-          title="Unpaid Invoices"
-          value={unpaidInvoices.length}
-          description={revenueHidden ? "Rs. •••••• outstanding" : `Rs. ${totalUnpaid.toLocaleString()} outstanding`}
-          icon={Receipt}
-        />
+        {canSeeBilling && (
+          <StatCard
+            title="Unpaid Invoices"
+            value={unpaidInvoices.length}
+            description={revenueHidden ? "Rs. •••••• outstanding" : `Rs. ${totalUnpaid.toLocaleString()} outstanding`}
+            icon={Receipt}
+          />
+        )}
 
-        {/* Revenue card — custom with eye toggle */}
-        <Card className="border-border/60">
-          <CardContent className="p-6">
-            <div className="flex items-start justify-between">
-              <div className="flex flex-col gap-1 flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <p className="text-sm font-medium text-muted-foreground">Revenue Collected</p>
-                  <button
-                    type="button"
-                    onClick={() => setRevenueHidden((h) => !h)}
-                    className="rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
-                    title={revenueHidden ? "Show revenue" : "Hide revenue"}
-                  >
-                    {revenueHidden
-                      ? <EyeOff className="h-3.5 w-3.5" />
-                      : <Eye className="h-3.5 w-3.5" />
-                    }
-                  </button>
+        {/* Revenue card — custom with eye toggle (billing roles only) */}
+        {canSeeBilling && (
+          <Card className="border-border/60">
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-1 flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-muted-foreground">Revenue Collected</p>
+                    <button
+                      type="button"
+                      onClick={() => setRevenueHidden((h) => !h)}
+                      className="rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                      title={revenueHidden ? "Show revenue" : "Hide revenue"}
+                    >
+                      {revenueHidden
+                        ? <EyeOff className="h-3.5 w-3.5" />
+                        : <Eye className="h-3.5 w-3.5" />
+                      }
+                    </button>
+                  </div>
+                  <p className="text-2xl font-bold text-foreground">
+                    {revenueHidden ? "Rs. ••••••" : `Rs. ${totalRevenue.toLocaleString()}`}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Total payments received</p>
                 </div>
-                <p className="text-2xl font-bold text-foreground">
-                  {revenueHidden ? "Rs. ••••••" : `Rs. ${totalRevenue.toLocaleString()}`}
-                </p>
-                <p className="text-xs text-muted-foreground">Total payments received</p>
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                  <TrendingUp className="h-6 w-6 text-primary" />
+                </div>
               </div>
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-                <TrendingUp className="h-6 w-6 text-primary" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      {/* ── Outstanding Balance Alert ── */}
-      {totalUnpaid > 0 && (
+      {/* ── Outstanding Balance Alert (billing roles only) ── */}
+      {canSeeBilling && totalUnpaid > 0 && (
         <Card className="mt-6 border-amber-200 bg-amber-50">
           <CardContent className="flex items-center gap-3 p-4">
             <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />

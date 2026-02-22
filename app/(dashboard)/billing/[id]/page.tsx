@@ -33,15 +33,19 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { User, Stethoscope, CalendarDays, CreditCard, Trash2 } from "lucide-react"
+import { User, Stethoscope, CalendarDays, CreditCard, Trash2, Download, Receipt } from "lucide-react"
 import { PAYMENT_METHODS } from "@/lib/constants"
 import { toast } from "sonner"
 import Link from "next/link"
+import type { Payment } from "@/lib/types"
+import { InvoiceReceiptDialog } from "@/components/invoice-receipt-dialog"
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { getInvoice, getPatient, getDoctor, hasPermission } = useStore()
+  const { getInvoice, getPatient, getDoctor, hasPermission, currentUser, clinicSettings } = useStore()
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  // receiptPayment: any past payment row OR freshly collected one
+  const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null)
 
   const invoice = getInvoice(id)
 
@@ -74,6 +78,11 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const canVoid = hasPermission("billing.void")
   const canDiscount = hasPermission("billing.discount")
 
+  // Last collected payment — show receipt button
+  const lastPayment = invoice.payments.length > 0
+    ? invoice.payments[invoice.payments.length - 1]
+    : null
+
   return (
     <>
       <PageHeader
@@ -86,6 +95,17 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         ]}
         actions={
           <div className="flex items-center gap-2">
+            {lastPayment && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setReceiptPayment(lastPayment)}
+              >
+                <Receipt className="h-4 w-4" />
+                View Receipt
+              </Button>
+            )}
             {canDiscount && invoice.status !== "voided" && invoice.status !== "paid" && (
               <Button variant="outline" size="sm" onClick={() => toast.info("Discount feature coming soon.")}>
                 Add Discount
@@ -160,12 +180,13 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                     <TableHead className="hidden sm:table-cell">Reference</TableHead>
                     <TableHead className="hidden md:table-cell">Collected By</TableHead>
                     <TableHead>Date</TableHead>
+                    <TableHead className="w-10" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {invoice.payments.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="h-16 text-center text-muted-foreground">
+                      <TableCell colSpan={6} className="h-16 text-center text-muted-foreground">
                         No payments collected yet.
                       </TableCell>
                     </TableRow>
@@ -182,6 +203,16 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                         </TableCell>
                         <TableCell className="text-xs text-muted-foreground">
                           {new Date(pay.collectedAt).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <button
+                            type="button"
+                            onClick={() => setReceiptPayment(pay)}
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                            title="View receipt"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </button>
                         </TableCell>
                       </TableRow>
                     ))
@@ -259,8 +290,24 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
       <CollectPaymentModal
         open={showPaymentModal}
         onOpenChange={setShowPaymentModal}
+        invoiceId={invoice.id}
         balance={invoice.balance}
+        collectedByName={currentUser?.name ?? "Staff"}
+        onPaymentCollected={(payment) => setReceiptPayment(payment)}
       />
+
+      {/* Receipt Dialog */}
+      {receiptPayment && (
+        <InvoiceReceiptDialog
+          open={!!receiptPayment}
+          onOpenChange={(v) => { if (!v) setReceiptPayment(null) }}
+          invoice={invoice}
+          patient={patient}
+          doctor={doctor}
+          latestPayment={receiptPayment}
+          clinicSettings={clinicSettings}
+        />
+      )}
     </>
   )
 }
@@ -268,35 +315,71 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
 function CollectPaymentModal({
   open,
   onOpenChange,
+  invoiceId,
   balance,
+  collectedByName,
+  onPaymentCollected,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  invoiceId: string
   balance: number
+  collectedByName: string
+  onPaymentCollected: (payment: Payment) => void
 }) {
-  const { currentUser } = useStore()
+  const { collectPayment } = useStore()
   const [amount, setAmount] = useState(balance.toString())
   const [method, setMethod] = useState("")
   const [reference, setReference] = useState("")
   const [notes, setNotes] = useState("")
+  const [saving, setSaving] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const reset = () => { setAmount(balance.toString()); setMethod(""); setReference(""); setNotes("") }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!amount || !method) {
       toast.error("Please fill in amount and payment method.")
       return
     }
-    toast.success(`Payment of Rs. ${amount} collected successfully.`)
-    onOpenChange(false)
+    const numAmount = parseFloat(amount)
+    if (isNaN(numAmount) || numAmount <= 0) {
+      toast.error("Please enter a valid amount.")
+      return
+    }
+    setSaving(true)
+    try {
+      const payment: Omit<Payment, "id"> = {
+        invoiceId,
+        amount: numAmount,
+        method: method as Payment["method"],
+        reference: reference.trim(),
+        notes: notes.trim(),
+        collectedBy: collectedByName,
+        collectedAt: new Date().toISOString(),
+      }
+      const collectedPayment: Payment = { ...payment, id: Date.now().toString() }
+      await collectPayment(invoiceId, payment)
+      toast.success(`Rs. ${numAmount} collected successfully.`)
+      onOpenChange(false)
+      reset()
+      // Pass a snapshot of the payment for the receipt dialog
+      // (the store will have the real one after re-render, but fields match)
+      onPaymentCollected(collectedPayment)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to collect payment.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { onOpenChange(false); reset() } }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Collect Payment</DialogTitle>
           <DialogDescription>
-            Outstanding balance: Rs. {balance}. Collecting as {currentUser.name}.
+            Outstanding balance: Rs. {balance}. Collecting as {collectedByName}.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -349,10 +432,12 @@ function CollectPaymentModal({
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => { onOpenChange(false); reset() }} disabled={saving}>
               Cancel
             </Button>
-            <Button type="submit">Collect Rs. {amount || "0"}</Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Processing…" : `Collect Rs. ${amount || "0"}`}
+            </Button>
           </div>
         </form>
       </DialogContent>

@@ -86,14 +86,17 @@ function TimeSlotPicker({
   const { doctors, appointments } = useStore()
   const doctor = doctors.find((d) => d.id === doctorId)
 
-  const { slots, bookedSlots, schedule } = useMemo(() => {
-    if (!doctor || !date) return { slots: [], bookedSlots: new Set<string>(), schedule: null }
+  const { slots, bookedSlots, schedules } = useMemo(() => {
+    if (!doctor || !date) return { slots: [], bookedSlots: new Set<string>(), schedules: [] }
 
     const dayName = getDayName(date)
-    const sched = doctor.schedule.find((s) => s.day === dayName) ?? null
-    if (!sched) return { slots: [], bookedSlots: new Set<string>(), schedule: null }
+    const daySchedules = doctor.schedule.filter((s) => s.day === dayName)
+    if (daySchedules.length === 0) return { slots: [], bookedSlots: new Set<string>(), schedules: [] }
 
-    const allSlots = generateSlots(sched.startTime, sched.endTime, 30)
+    // Generate slots for every time range on this day using duration as the step interval
+    const allSlots = daySchedules.flatMap((sched) =>
+      generateSlots(sched.startTime, sched.endTime, duration)
+    )
 
     const existing = appointments.filter(
       (a) => a.doctorId === doctorId && a.date === date && a.status !== "cancelled"
@@ -104,7 +107,7 @@ function TimeSlotPicker({
       if (isSlotBooked(slot, duration, existing)) booked.add(slot)
     }
 
-    return { slots: allSlots, bookedSlots: booked, schedule: sched }
+    return { slots: allSlots, bookedSlots: booked, schedules: daySchedules }
   }, [doctor, date, duration, doctorId, appointments])
 
   if (!doctorId || !date) {
@@ -115,7 +118,7 @@ function TimeSlotPicker({
     )
   }
 
-  if (!schedule) {
+  if (schedules.length === 0) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
         <AlertCircle className="h-4 w-4 shrink-0" />
@@ -129,7 +132,7 @@ function TimeSlotPicker({
   return (
     <div className="flex flex-col gap-2">
       <div className="text-xs text-muted-foreground">
-        {schedule.startTime} – {schedule.endTime} &nbsp;·&nbsp;
+        {schedules.map((s) => `${s.startTime}–${s.endTime}`).join(", ")} &nbsp;·&nbsp;
         <span className="text-emerald-600 font-medium">{available.length} slots free</span>
         {bookedSlots.size > 0 && (
           <span className="text-red-500"> · {bookedSlots.size} booked</span>

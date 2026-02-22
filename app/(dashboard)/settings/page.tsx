@@ -52,6 +52,8 @@ import {
   UserPlus,
   Trash2,
   Loader2,
+  Pencil,
+  Heart,
 } from "lucide-react"
 import {
   AlertDialog,
@@ -63,8 +65,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import type { TestCatalogItem } from "@/lib/types"
-import { DEFAULT_CLINIC_INFO, DEFAULT_APPOINTMENT_SETTINGS, ROLE_PERMISSIONS, ALL_PERMISSIONS } from "@/lib/constants"
+import type { TestCatalogItem, Doctor } from "@/lib/types"
+import { DEFAULT_APPOINTMENT_SETTINGS, ROLE_PERMISSIONS, ALL_PERMISSIONS, SPECIALTIES, DOCTOR_TYPES } from "@/lib/constants"
 import type { Role } from "@/lib/types"
 import { toast } from "sonner"
 
@@ -100,10 +102,30 @@ const ROLE_COLORS: Record<string, string> = {
 }
 
 export default function SettingsPage() {
-  const { doctors, testCatalog, hasPermission, currentUser, deleteTestCatalogItem } = useStore()
+  const { doctors, testCatalog, hasPermission, currentUser, deleteTestCatalogItem, updateDoctor, deleteDoctor, clinicSettings, updateClinicSettings } = useStore()
   const canEdit = hasPermission("settings.edit")
   const isAdmin = currentUser?.role === "admin"
 
+  // Doctor CRUD state
+  const [editingDoctor, setEditingDoctor] = useState<Doctor | null>(null)
+  const [deletingDoctor, setDeletingDoctor] = useState<Doctor | null>(null)
+  const [deletingDoctorBusy, setDeletingDoctorBusy] = useState(false)
+
+  const handleDeleteDoctor = async () => {
+    if (!deletingDoctor) return
+    setDeletingDoctorBusy(true)
+    try {
+      await deleteDoctor(deletingDoctor.id)
+      toast.success(`Dr. ${deletingDoctor.name} removed.`)
+      setDeletingDoctor(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete doctor.")
+    } finally {
+      setDeletingDoctorBusy(false)
+    }
+  }
+
+  // Test CRUD state
   const [deletingTest, setDeletingTest] = useState<TestCatalogItem | null>(null)
   const [deletingTestBusy, setDeletingTestBusy] = useState(false)
 
@@ -121,14 +143,26 @@ export default function SettingsPage() {
     }
   }
 
-  // Clinic info state
-  const [clinic, setClinic] = useState(DEFAULT_CLINIC_INFO)
+  // Clinic info state — mirror from store so edits are local until saved
+  const [clinic, setClinic] = useState(clinicSettings)
+  const [savingClinic, setSavingClinic] = useState(false)
+
+  // Sync if store loads after component mounts
+  React.useEffect(() => { setClinic(clinicSettings) }, [clinicSettings])
 
   // Appointment defaults state
   const [apptSettings, setApptSettings] = useState(DEFAULT_APPOINTMENT_SETTINGS)
 
-  const handleSaveClinic = () => {
-    toast.success("Clinic information saved.")
+  const handleSaveClinic = async () => {
+    setSavingClinic(true)
+    try {
+      await updateClinicSettings(clinic)
+      toast.success("Clinic information saved.")
+    } catch {
+      toast.error("Failed to save clinic information.")
+    } finally {
+      setSavingClinic(false)
+    }
   }
 
   const handleSaveAppt = () => {
@@ -241,12 +275,70 @@ export default function SettingsPage() {
                     disabled={!canEdit}
                   />
                 </div>
+                <div className="sm:col-span-2 flex flex-col gap-1.5">
+                  <Label>Clinic Logo</Label>
+                  <div className="flex items-center gap-4">
+                    {clinic.logo ? (
+                      <div className="relative h-16 w-16 shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={clinic.logo}
+                          alt="Clinic logo"
+                          className="h-16 w-16 rounded-lg object-cover border border-border"
+                        />
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => setClinic({ ...clinic, logo: "" })}
+                            className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground text-xs"
+                            title="Remove logo"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-muted-foreground">
+                        <Heart className="h-6 w-6 opacity-40" />
+                      </div>
+                    )}
+                    {canEdit && (
+                      <div className="flex flex-col gap-1.5">
+                        <label
+                          htmlFor="clinic-logo-upload"
+                          className="cursor-pointer inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          {clinic.logo ? "Change Logo" : "Upload Logo"}
+                        </label>
+                        <input
+                          id="clinic-logo-upload"
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (!file) return
+                            if (file.size > 500 * 1024) {
+                              toast.error("Logo must be under 500 KB.")
+                              return
+                            }
+                            const reader = new FileReader()
+                            reader.onload = () => setClinic({ ...clinic, logo: reader.result as string })
+                            reader.readAsDataURL(file)
+                          }}
+                        />
+                        <p className="text-xs text-muted-foreground">PNG, JPG · max 500 KB</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
               {canEdit && (
                 <div className="mt-6 flex justify-end">
-                  <Button onClick={handleSaveClinic} size="sm">
-                    <Save className="mr-1.5 h-4 w-4" />
-                    Save Changes
+                  <Button onClick={handleSaveClinic} size="sm" disabled={savingClinic}>
+                    {savingClinic ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}
+                    {savingClinic ? "Saving…" : "Save Changes"}
                   </Button>
                 </div>
               )}
@@ -363,6 +455,7 @@ export default function SettingsPage() {
                     <TableHead className="text-right">Fee</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Schedule Days</TableHead>
+                    {isAdmin && <TableHead className="w-16" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -400,9 +493,9 @@ export default function SettingsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          {doc.schedule.map((s) => (
+                          {doc.schedule.map((s, i) => (
                             <Badge
-                              key={s.day}
+                              key={`${s.day}-${i}`}
                               variant="secondary"
                               className="text-xs px-1.5"
                             >
@@ -411,6 +504,28 @@ export default function SettingsPage() {
                           ))}
                         </div>
                       </TableCell>
+                      {isAdmin && (
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setEditingDoctor(doc)}
+                              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                              title="Edit doctor"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingDoctor(doc)}
+                              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all"
+                              title="Delete doctor"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -428,9 +543,9 @@ export default function SettingsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex flex-col gap-1.5">
-                    {doc.schedule.map((s) => (
+                    {doc.schedule.map((s, i) => (
                       <div
-                        key={s.day}
+                        key={`${s.day}-${i}`}
                         className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-1.5"
                       >
                         <div className="flex items-center gap-2">
@@ -701,7 +816,176 @@ export default function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Edit Doctor Modal ── */}
+      {editingDoctor && (
+        <EditDoctorModal
+          doctor={editingDoctor}
+          onClose={() => setEditingDoctor(null)}
+          onSave={async (data) => {
+            await updateDoctor(editingDoctor.id, data)
+            toast.success(`Dr. ${data.name ?? editingDoctor.name} updated.`)
+            setEditingDoctor(null)
+          }}
+        />
+      )}
+
+      {/* ── Delete Doctor Confirmation ── */}
+      <AlertDialog open={!!deletingDoctor} onOpenChange={(open) => { if (!open) setDeletingDoctor(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" />
+              Remove Doctor
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to permanently remove{" "}
+              <span className="font-semibold text-foreground">Dr. {deletingDoctor?.name}</span>?
+              This will remove the doctor record. Past appointments and treatments will remain.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingDoctorBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteDoctor}
+              disabled={deletingDoctorBusy}
+              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+            >
+              {deletingDoctorBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {deletingDoctorBusy ? "Removing…" : "Remove Doctor"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Edit Doctor Modal
+   ───────────────────────────────────────────────────────────────── */
+
+function EditDoctorModal({
+  doctor,
+  onClose,
+  onSave,
+}: {
+  doctor: Doctor
+  onClose: () => void
+  onSave: (data: Partial<Doctor>) => Promise<void>
+}) {
+  const [name, setName] = useState(doctor.name)
+  const [specialty, setSpecialty] = useState(doctor.specialty)
+  const [type, setType] = useState(doctor.type)
+  const [phone, setPhone] = useState(doctor.phone)
+  const [email, setEmail] = useState(doctor.email)
+  const [fee, setFee] = useState(String(doctor.consultationFee))
+  const [isActive, setIsActive] = useState(doctor.isActive)
+  const [saving, setSaving] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!name || !specialty || !type) {
+      toast.error("Name, specialty and type are required.")
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave({
+        name: name.trim(),
+        specialty,
+        type,
+        phone: phone.trim(),
+        email: email.trim(),
+        consultationFee: Number(fee) || 0,
+        isActive,
+      })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update doctor.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="sm:max-w-[600px] p-0 gap-0">
+        <div className="flex items-start gap-3 px-6 pt-6 pb-5 border-b border-border">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+            <Stethoscope className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <DialogTitle className="text-base font-semibold leading-tight">Edit Doctor</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground mt-0.5">
+              Update details for Dr. {doctor.name}
+            </DialogDescription>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="px-6 py-5 flex flex-col gap-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ed-name">Full Name *</Label>
+              <Input id="ed-name" value={name} onChange={(e) => setName(e.target.value)} className="h-10" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ed-email">Email</Label>
+              <Input id="ed-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-10" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label>Specialty *</Label>
+              <Select value={specialty} onValueChange={setSpecialty}>
+                <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SPECIALTIES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Type *</Label>
+              <Select value={type} onValueChange={setType}>
+                <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {DOCTOR_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ed-phone">
+                <Phone className="mr-1 inline h-3.5 w-3.5 text-muted-foreground" />Phone
+              </Label>
+              <Input id="ed-phone" value={phone} onChange={(e) => setPhone(e.target.value)} className="h-10" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="ed-fee">Consultation Fee (Rs.)</Label>
+              <Input id="ed-fee" type="number" min={0} value={fee} onChange={(e) => setFee(e.target.value)} className="h-10" />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3">
+            <Switch id="ed-active" checked={isActive} onCheckedChange={setIsActive} />
+            <Label htmlFor="ed-active" className="cursor-pointer">
+              {isActive ? "Active — accepting patients" : "Inactive — not available"}
+            </Label>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button type="submit" disabled={saving} className="gap-1.5">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {saving ? "Saving…" : "Save Changes"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -711,7 +995,6 @@ export default function SettingsPage() {
 
 const CREATABLE_ROLES: { value: Role; label: string; description: string }[] = [
   { value: "manager", label: "Manager", description: "Operations & scheduling" },
-  { value: "doctor", label: "Doctor", description: "Clinical access & treatments" },
   { value: "accounts", label: "Accountant", description: "Billing & financial reports" },
 ]
 
@@ -721,13 +1004,14 @@ function UserManagementSection() {
   const { currentUser } = useStore()
   const isAdmin = currentUser?.role === "admin"
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [editingUser, setEditingUser] = useState<UserRow | null>(null)
   const [users, setUsers] = useState<UserRow[]>([])
   const [loadingUsers, setLoadingUsers] = useState(true)
 
   useEffect(() => {
     fetch("/api/users")
       .then((r) => r.json())
-      .then((data) => setUsers(data.users ?? []))
+      .then((data) => setUsers(data.data ?? []))
       .catch(() => toast.error("Failed to load users."))
       .finally(() => setLoadingUsers(false))
   }, [])
@@ -735,6 +1019,12 @@ function UserManagementSection() {
   const handleUserCreated = (user: UserRow) => {
     setUsers((prev) => [...prev, user])
     toast.success(`User "${user.name}" created as ${user.role}.`)
+  }
+
+  const handleUserUpdated = (user: UserRow) => {
+    setUsers((prev) => prev.map((u) => (u.id === user.id ? user : u)))
+    toast.success(`Credentials updated for ${user.name}.`)
+    setEditingUser(null)
   }
 
   return (
@@ -745,7 +1035,7 @@ function UserManagementSection() {
             <CardTitle className="text-base">System Users</CardTitle>
             <CardDescription>
               {loadingUsers ? "Loading users…" : `${users.length} user(s) registered in the system.`}
-              {!loadingUsers && (isAdmin ? " You can create new users." : " Only admins can manage users.")}
+              {!loadingUsers && (isAdmin ? " You can create and edit users." : " Only admins can manage users.")}
             </CardDescription>
           </div>
           {isAdmin && (
@@ -763,6 +1053,7 @@ function UserManagementSection() {
                 <TableHead>Email</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead className="text-center">Status</TableHead>
+                {isAdmin && <TableHead className="w-10" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -790,6 +1081,18 @@ function UserManagementSection() {
                       Active
                     </Badge>
                   </TableCell>
+                  {isAdmin && (
+                    <TableCell>
+                      <button
+                        type="button"
+                        onClick={() => setEditingUser(u)}
+                        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                        title="Edit credentials"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -824,6 +1127,14 @@ function UserManagementSection() {
           open={showCreateModal}
           onOpenChange={setShowCreateModal}
           onUserCreated={handleUserCreated}
+        />
+      )}
+
+      {isAdmin && editingUser && (
+        <EditUserCredentialsModal
+          user={editingUser}
+          onClose={() => setEditingUser(null)}
+          onSaved={handleUserUpdated}
         />
       )}
     </>
@@ -874,7 +1185,7 @@ function CreateUserModal({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Failed to create user.")
-      onUserCreated(data.user as UserRow)
+      onUserCreated(data.data as UserRow)
       onOpenChange(false)
       reset()
     } catch (err) {
@@ -893,8 +1204,7 @@ function CreateUserModal({
             Create New User
           </DialogTitle>
           <DialogDescription>
-            Add a new user to the system. You can create Manager, Doctor, or Accountant users.
-            Admin users cannot be created.
+            Add a new Manager or Accountant user. Doctor accounts are created automatically when a doctor is added from the Doctors module.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
@@ -970,6 +1280,97 @@ function CreateUserModal({
             <Button type="submit" disabled={saving}>
               <UserPlus className="mr-1.5 h-4 w-4" />
               {saving ? "Creating…" : "Create User"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Edit User Credentials Modal
+   ───────────────────────────────────────────────────────────────── */
+function EditUserCredentialsModal({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: UserRow
+  onClose: () => void
+  onSaved: (updated: UserRow) => void
+}) {
+  const [name, setName] = useState(user.name)
+  const [email, setEmail] = useState(user.email)
+  const [password, setPassword] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    if (!name || !email) {
+      toast.error("Name and email are required.")
+      return
+    }
+    if (password && password.length < 6) {
+      toast.error("Password must be at least 6 characters.")
+      return
+    }
+    setSaving(true)
+    try {
+      const body: Record<string, string> = { name, email }
+      if (password) body.password = password
+      const res = await fetch(`/api/users/${user.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to update credentials.")
+      onSaved(data.data as UserRow)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update credentials.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-4 w-4 text-primary" />
+            Edit Credentials — {user.name}
+          </DialogTitle>
+          <DialogDescription>
+            Update login details for this user. Leave password blank to keep existing.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4 pt-1">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ec-name">Full Name *</Label>
+            <Input id="ec-name" value={name} onChange={(e) => setName(e.target.value)} className="h-10" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ec-email">Email *</Label>
+            <Input id="ec-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-10" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="ec-password">New Password</Label>
+            <Input
+              id="ec-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank to keep current"
+              className="h-10"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button type="submit" disabled={saving} className="gap-1.5">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {saving ? "Saving…" : "Save"}
             </Button>
           </div>
         </form>

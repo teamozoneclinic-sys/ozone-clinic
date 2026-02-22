@@ -35,8 +35,9 @@ import {
   Users,
   Receipt,
 } from "lucide-react"
+import { getPKTDateString } from "@/lib/pkt"
 
-const TODAY = "2026-02-20"
+const TODAY = getPKTDateString()
 
 export default function TreatmentsPage() {
   const { currentUser } = useStore()

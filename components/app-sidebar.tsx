@@ -103,7 +103,7 @@ function NavGroup({
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { hasPermission } = useStore()
+  const { hasPermission, clinicSettings } = useStore()
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -112,11 +112,18 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link href="/">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                  <Heart className="h-4 w-4 text-primary-foreground" />
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary overflow-hidden">
+                  {clinicSettings?.logo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={clinicSettings.logo} alt="logo" className="h-full w-full object-cover" />
+                  ) : (
+                    <Heart className="h-4 w-4 text-primary-foreground" />
+                  )}
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-semibold">HealthCare Clinic</span>
+                  <span className="truncate font-semibold">
+                    {clinicSettings?.name || "HealthCare Clinic"}
+                  </span>
                   <span className="truncate text-xs text-muted-foreground">Management System</span>
                 </div>
               </Link>
