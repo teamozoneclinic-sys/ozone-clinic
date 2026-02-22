@@ -64,6 +64,8 @@ interface StoreState {
   addPatient: (data: Omit<Patient, "id" | "createdAt" | "updatedAt" | "medicalHistory" | "documents">) => Promise<void>
   updatePatient: (id: string, data: Partial<Patient>) => Promise<void>
   deletePatient: (id: string) => Promise<void>
+  addTestCatalogItem: (data: Omit<TestCatalogItem, "id" | "createdAt" | "updatedAt">) => Promise<void>
+  updateTestCatalogItem: (id: string, data: Partial<TestCatalogItem>) => Promise<void>
   deleteTestCatalogItem: (id: string) => Promise<void>
   addDoctor: (data: Omit<Doctor, "id">) => Promise<void>
   updateDoctor: (id: string, data: Partial<Doctor>) => Promise<void>
@@ -114,14 +116,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [treatments, setTreatments] = useState<Treatment[]>([])
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [testCatalog, setTestCatalog] = useState<TestCatalogItem[]>([])
-  const [auditLog] = useState<AuditLogEntry[]>([])
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
   const [clinicSettings, setClinicSettings] = useState<ClinicInfo>(DEFAULT_CLINIC_INFO)
 
   // ── Fetch all data ────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [meRes, patientsRes, doctorsRes, appointmentsRes, treatmentsRes, invoicesRes, catalogRes, clinicRes] =
+      const [meRes, patientsRes, doctorsRes, appointmentsRes, treatmentsRes, invoicesRes, catalogRes, clinicRes, auditRes] =
         await Promise.all([
           apiFetch<{ user: User }>("/api/auth/me"),
           apiFetch<{ data: Patient[] }>("/api/patients"),
@@ -131,6 +133,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           apiFetch<{ data: Invoice[] }>("/api/invoices"),
           apiFetch<{ data: TestCatalogItem[] }>("/api/catalog"),
           apiFetch<{ data: ClinicInfo }>("/api/clinic-settings"),
+          apiFetch<{ data: AuditLogEntry[] }>("/api/audit-log"),
         ])
       setCurrentUser(meRes.user)
       setPatients(patientsRes.data)
@@ -140,6 +143,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setInvoices(invoicesRes.data)
       setTestCatalog(catalogRes.data)
       setClinicSettings(clinicRes.data)
+      setAuditLog(auditRes.data)
     } catch (err) {
       console.error("Store fetch error:", err)
     } finally {
@@ -164,6 +168,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Legacy compat — role comes from JWT; kept so RoleSwitcher compiles
   const setCurrentRole = useCallback((_role: Role) => {}, [])
 
+  // ── Audit helper (fire-and-forget) ────────────────────────────────────
+  const logAuditEntry = useCallback(
+    async (action: string, entity: string, entityId: string, details: string) => {
+      if (!currentUser) return
+      try {
+        const res = await apiFetch<{ data: AuditLogEntry }>("/api/audit-log", {
+          method: "POST",
+          body: JSON.stringify({
+            userId: currentUser.id,
+            userName: currentUser.name,
+            userRole: currentUser.role,
+            action,
+            entity,
+            entityId,
+            details,
+            timestamp: new Date().toISOString(),
+          }),
+        })
+        setAuditLog((prev) => [res.data, ...prev])
+      } catch {
+        // Non-critical — audit failure must not block main action
+      }
+    },
+    [currentUser]
+  )
+
   // ── Mutations ─────────────────────────────────────────────────────────
 
   const addPatient = useCallback(
@@ -173,8 +203,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ ...data, medicalHistory: [], documents: [] }),
       })
       setPatients((prev) => [res.data, ...prev])
+      logAuditEntry("Patient Created", "Patient", res.data.id, `Patient "${res.data.name}" registered.`)
     },
-    []
+    [logAuditEntry]
   )
 
   const updatePatient = useCallback(async (id: string, data: Partial<Patient>) => {
@@ -188,6 +219,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const deletePatient = useCallback(async (id: string) => {
     await apiFetch(`/api/patients/${id}`, { method: "DELETE" })
     setPatients((prev) => prev.filter((p) => p.id !== id))
+  }, [])
+
+  const addTestCatalogItem = useCallback(
+    async (data: Omit<TestCatalogItem, "id" | "createdAt" | "updatedAt">) => {
+      const res = await apiFetch<{ data: TestCatalogItem }>("/api/catalog", {
+        method: "POST",
+        body: JSON.stringify(data),
+      })
+      setTestCatalog((prev) => [...prev, res.data])
+    },
+    []
+  )
+
+  const updateTestCatalogItem = useCallback(async (id: string, data: Partial<TestCatalogItem>) => {
+    const res = await apiFetch<{ data: TestCatalogItem }>(`/api/catalog/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+    setTestCatalog((prev) => prev.map((t) => (t.id === id ? res.data : t)))
   }, [])
 
   const deleteTestCatalogItem = useCallback(async (id: string) => {
@@ -235,8 +285,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       // Refresh invoices to capture the auto-created one
       const invRes = await apiFetch<{ data: Invoice[] }>("/api/invoices")
       setInvoices(invRes.data)
+      logAuditEntry(
+        "Appointment Created",
+        "Appointment",
+        res.data.id,
+        `Appointment on ${data.date} at ${data.time} (${data.type}).`
+      )
     },
-    []
+    [logAuditEntry]
   )
 
   const collectPayment = useCallback(
@@ -246,17 +302,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(payment),
       })
       setInvoices((prev) => prev.map((inv) => (inv.id === invoiceId ? res.data : inv)))
+      logAuditEntry(
+        "Payment Collected",
+        "Invoice",
+        invoiceId,
+        `Rs. ${payment.amount.toLocaleString()} collected via ${payment.method.replace("-", " ")}.`
+      )
     },
-    []
+    [logAuditEntry]
   )
 
   const createTreatment = useCallback(
     async (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">): Promise<Treatment> => {
-      const res = await apiFetch<{ data: Treatment }>("/api/treatments", {
+      const res = await apiFetch<{ data: Treatment; invoice: Invoice | null }>("/api/treatments", {
         method: "POST",
         body: JSON.stringify(data),
       })
       setTreatments((prev) => [res.data, ...prev])
+      // If the server added test line items, sync the updated invoice into local state
+      if (res.invoice) {
+        setInvoices((prev) =>
+          prev.map((inv) => (inv.id === res.invoice!.id ? res.invoice! : inv))
+        )
+      }
+      logAuditEntry(
+        "Treatment Created",
+        "Treatment",
+        res.data.id,
+        `Diagnosis: ${data.diagnosis || "—"}.`
+      )
       // Reflect the new medical history entry in local patient state
       setPatients((prev) =>
         prev.map((p) => {
@@ -278,7 +352,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       )
       return res.data
     },
-    []
+    [logAuditEntry]
   )
 
   const updateAppointmentStatus = useCallback(
@@ -369,6 +443,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addPatient,
         updatePatient,
         deletePatient,
+        addTestCatalogItem,
+        updateTestCatalogItem,
         deleteTestCatalogItem,
         addDoctor,
         updateDoctor,

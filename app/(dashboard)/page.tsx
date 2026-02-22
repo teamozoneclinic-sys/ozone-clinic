@@ -68,12 +68,12 @@ export default function DashboardPage() {
   }, [isDoctor, doctors, currentUser])
 
   const allTodayAppointments = getTodayAppointments()
-  const todayAppointments = useMemo(() =>
-    myDoctorId
-      ? allTodayAppointments.filter((a) => a.doctorId === myDoctorId)
-      : allTodayAppointments,
-    [allTodayAppointments, myDoctorId]
-  )
+  const todayAppointments = useMemo(() => {
+    const ACTIVE = ["scheduled", "checked-in", "in-progress"]
+    return myDoctorId
+      ? allTodayAppointments.filter((a) => a.doctorId === myDoctorId && ACTIVE.includes(a.status))
+      : allTodayAppointments.filter((a) => ACTIVE.includes(a.status))
+  }, [allTodayAppointments, myDoctorId])
 
   const unpaidInvoices = getUnpaidInvoices()
   const totalRevenue = getTotalRevenue()

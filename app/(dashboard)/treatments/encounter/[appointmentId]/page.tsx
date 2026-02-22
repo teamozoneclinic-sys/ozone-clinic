@@ -60,6 +60,7 @@ export default function EncounterPage({
     getTreatmentByAppointment,
     getPatientTreatments,
     createTreatment,
+    updateAppointmentStatus,
     testCatalog,
     currentUser,
   } = useStore()
@@ -180,6 +181,7 @@ export default function EncounterPage({
       patient={patient}
       doctor={doctor}
       createTreatment={createTreatment}
+      updateAppointmentStatus={updateAppointmentStatus}
       testCatalog={testCatalog}
       previousTreatments={previousTreatments}
       router={router}
@@ -195,6 +197,7 @@ function EncounterForm({
   patient,
   doctor,
   createTreatment,
+  updateAppointmentStatus,
   testCatalog,
   previousTreatments,
   router,
@@ -204,6 +207,7 @@ function EncounterForm({
   patient: ReturnType<ReturnType<typeof useStore>["getPatient"]>
   doctor: ReturnType<ReturnType<typeof useStore>["getDoctor"]>
   createTreatment: ReturnType<typeof useStore>["createTreatment"]
+  updateAppointmentStatus: ReturnType<typeof useStore>["updateAppointmentStatus"]
   testCatalog: ReturnType<typeof useStore>["testCatalog"]
   previousTreatments: Treatment[]
   router: ReturnType<typeof useRouter>
@@ -246,7 +250,9 @@ function EncounterForm({
     )
   }
 
-  const handleFinalize = () => {
+  const [finalizing, setFinalizing] = useState(false)
+
+  const handleFinalize = async () => {
     if (!complaint.trim()) {
       toast.error("Chief Complaint is required.")
       setActiveSection("notes")
@@ -258,24 +264,30 @@ function EncounterForm({
       return
     }
 
-    createTreatment({
-      patientId: appointment!.patientId,
-      doctorId: appointment!.doctorId,
-      appointmentId,
-      date: appointment!.date,
-      complaint,
-      clinicalNotes,
-      diagnosis,
-      prescribedInstructions,
-      testsRecommended: selectedTestIds,
-      doctorSummary,
-      followUpDate: followUpDate || undefined,
-      attachments: [],
-      status: "completed",
-    })
-
-    toast.success("Encounter finalized and treatment record saved.")
-    router.push("/treatments")
+    setFinalizing(true)
+    try {
+      await createTreatment({
+        patientId: appointment!.patientId,
+        doctorId: appointment!.doctorId,
+        appointmentId,
+        date: appointment!.date,
+        complaint,
+        clinicalNotes,
+        diagnosis,
+        prescribedInstructions,
+        testsRecommended: selectedTestIds,
+        doctorSummary,
+        followUpDate: followUpDate || undefined,
+        attachments: [],
+        status: "completed",
+      })
+      await updateAppointmentStatus(appointmentId, "completed")
+      toast.success("Encounter finalized and treatment record saved.")
+      router.push("/treatments")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to finalize encounter.")
+      setFinalizing(false)
+    }
   }
 
   const completionScore = [
@@ -693,11 +705,11 @@ function EncounterForm({
 
           {/* Finalize actions */}
           <div className="flex flex-col gap-2">
-            <Button onClick={handleFinalize} className="w-full">
+            <Button onClick={handleFinalize} className="w-full" disabled={finalizing}>
               <CheckCircle2 className="mr-1 h-4 w-4" />
-              Finalize Encounter
+              {finalizing ? "Saving…" : "Finalize Encounter"}
             </Button>
-            <Button variant="outline" className="w-full" asChild>
+            <Button variant="outline" className="w-full" asChild disabled={finalizing}>
               <Link href="/treatments">Cancel</Link>
             </Button>
           </div>

@@ -42,12 +42,13 @@ import { InvoiceReceiptDialog } from "@/components/invoice-receipt-dialog"
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { getInvoice, getPatient, getDoctor, hasPermission, currentUser, clinicSettings } = useStore()
+  const { getInvoice, getPatient, getDoctor, getAppointment, hasPermission, currentUser, clinicSettings } = useStore()
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   // receiptPayment: any past payment row OR freshly collected one
   const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null)
 
   const invoice = getInvoice(id)
+  const appointment = invoice ? getAppointment(invoice.appointmentId) : undefined
 
   if (!invoice) {
     return (
@@ -306,6 +307,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           doctor={doctor}
           latestPayment={receiptPayment}
           clinicSettings={clinicSettings}
+          appointment={appointment ? { date: appointment.date, time: appointment.time } : undefined}
         />
       )}
     </>

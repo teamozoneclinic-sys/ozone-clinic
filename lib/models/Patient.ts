@@ -78,6 +78,10 @@ const PatientSchema = new Schema<IPatient>(
   }
 )
 
+if (process.env.NODE_ENV !== "production") {
+  delete (mongoose.models as Record<string, unknown>).Patient
+}
+
 const Patient: Model<IPatient> =
   mongoose.models.Patient || mongoose.model<IPatient>("Patient", PatientSchema)
 export default Patient

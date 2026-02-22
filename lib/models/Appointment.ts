@@ -48,6 +48,10 @@ const AppointmentSchema = new Schema<IAppointment>(
   }
 )
 
+if (process.env.NODE_ENV !== "production") {
+  delete (mongoose.models as Record<string, unknown>).Appointment
+}
+
 const Appointment: Model<IAppointment> =
   mongoose.models.Appointment ||
   mongoose.model<IAppointment>("Appointment", AppointmentSchema)

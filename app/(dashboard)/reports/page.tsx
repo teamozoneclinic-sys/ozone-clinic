@@ -10,8 +10,9 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { DollarSign, Receipt, TrendingUp, Users } from "lucide-react"
 import Link from "next/link"
+import { getPKTDateString } from "@/lib/pkt"
 
-const TODAY = "2026-02-20"
+const TODAY = getPKTDateString()
 
 function daysBetween(dateStr: string): number {
   const from = new Date(dateStr)
@@ -241,7 +242,7 @@ export default function ReportsPage() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Payment Details</CardTitle>
-              <CardDescription>All individual payments received on {TODAY}</CardDescription>
+              <CardDescription>All individual payments received on {TODAY} (PKT)</CardDescription>
             </CardHeader>
             <CardContent>
               {todayPayments.length === 0 ? (

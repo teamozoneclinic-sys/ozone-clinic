@@ -351,11 +351,13 @@ function TestFormModal({
   onOpenChange: (open: boolean) => void
   editTest: TestCatalogItem | null
 }) {
+  const { addTestCatalogItem, updateTestCatalogItem } = useStore()
   const isEdit = !!editTest
   const [name, setName] = useState("")
   const [category, setCategory] = useState("")
   const [price, setPrice] = useState("")
   const [urgency, setUrgency] = useState<string[]>(["routine"])
+  const [saving, setSaving] = useState(false)
 
   // Populate form when editing
   useEffect(() => {
@@ -378,7 +380,7 @@ function TestFormModal({
     )
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim() || !category || !price) {
       toast.error("Please fill in all required fields.")
@@ -388,8 +390,32 @@ function TestFormModal({
       toast.error("Select at least one urgency option.")
       return
     }
-    toast.success(isEdit ? `"${name}" updated in catalog.` : `"${name}" added to catalog.`)
-    onOpenChange(false)
+    setSaving(true)
+    try {
+      if (isEdit && editTest) {
+        await updateTestCatalogItem(editTest.id, {
+          name: name.trim(),
+          category,
+          price: parseFloat(price),
+          urgencyOptions: urgency,
+        })
+        toast.success(`"${name}" updated in catalog.`)
+      } else {
+        await addTestCatalogItem({
+          name: name.trim(),
+          category,
+          price: parseFloat(price),
+          urgencyOptions: urgency,
+          isActive: true,
+        })
+        toast.success(`"${name}" added to catalog.`)
+      }
+      onOpenChange(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save test.")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -477,11 +503,12 @@ function TestFormModal({
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
               Cancel
             </Button>
-            <Button type="submit">
-              {isEdit ? "Update Test" : "Add Test"}
+            <Button type="submit" disabled={saving}>
+              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {saving ? "Saving…" : isEdit ? "Update Test" : "Add Test"}
             </Button>
           </div>
         </form>

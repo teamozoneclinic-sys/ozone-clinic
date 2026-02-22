@@ -52,6 +52,10 @@ const TreatmentSchema = new Schema<ITreatment>(
   }
 )
 
+if (process.env.NODE_ENV !== "production") {
+  delete (mongoose.models as Record<string, unknown>).Treatment
+}
+
 const Treatment: Model<ITreatment> =
   mongoose.models.Treatment ||
   mongoose.model<ITreatment>("Treatment", TreatmentSchema)

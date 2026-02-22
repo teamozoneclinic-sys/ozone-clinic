@@ -1,15 +1,16 @@
 "use client"
 
-import { useRef } from "react"
+import { useState } from "react"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { Download, MessageCircle, Heart, CheckCircle2 } from "lucide-react"
+import { Download, MessageCircle, Heart, CheckCircle2, Printer, X } from "lucide-react"
 import type { Invoice, Patient, Doctor, Payment } from "@/lib/types"
 import type { ClinicInfo } from "@/lib/types"
 
@@ -21,7 +22,51 @@ interface InvoiceReceiptDialogProps {
   doctor: Doctor | undefined
   latestPayment: Payment
   clinicSettings: ClinicInfo
+  appointment?: { date: string; time: string }
 }
+
+// ─── Shared receipt CSS (used for both print and PDF) ─────────────────────────
+const RECEIPT_STYLES = `
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; }
+  .page { max-width: 700px; margin: 0 auto; padding: 32px 40px; }
+  .header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #0f766e; }
+  .logo-box { width: 56px; height: 56px; border-radius: 12px; background: #0f766e; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
+  .logo-box img { width: 56px; height: 56px; object-fit: cover; display: block; }
+  .logo-box svg { width: 28px; height: 28px; color: #fff; }
+  .clinic-name { font-size: 20px; font-weight: 700; color: #0f766e; }
+  .clinic-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
+  .receipt-title { text-align: right; margin-left: auto; }
+  .receipt-title h1 { font-size: 22px; font-weight: 800; color: #0f766e; letter-spacing: 2px; }
+  .receipt-title p { font-size: 11px; color: #6b7280; margin-top: 2px; }
+  .status-badge { display: inline-block; background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 20px; padding: 4px 14px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
+  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .meta-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; }
+  .meta-box .label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+  .meta-box .value { font-size: 13px; font-weight: 600; color: #111827; }
+  .meta-box .sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
+  .section-title { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; margin-top: 20px; }
+  table { width: 100%; border-collapse: collapse; }
+  th { background: #f3f4f6; text-align: left; font-size: 11px; color: #6b7280; padding: 8px 12px; border-bottom: 1px solid #e5e7eb; }
+  th.right { text-align: right; }
+  td { padding: 9px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px; }
+  td.right { text-align: right; }
+  td.cap { text-transform: capitalize; font-size: 11px; }
+  .total-row td { font-weight: 700; font-size: 14px; background: #f9fafb; }
+  .payment-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 10px; }
+  .payment-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 14px; }
+  .payment-box.red { background: #fff7ed; border-color: #fed7aa; }
+  .payment-box .label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+  .payment-box .amount { font-size: 18px; font-weight: 800; color: #065f46; }
+  .payment-box.red .amount { color: #c2410c; }
+  .divider { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
+  .footer { text-align: center; font-size: 11px; color: #9ca3af; margin-top: 24px; padding-top: 16px; border-top: 1px dashed #d1d5db; }
+  .footer strong { color: #0f766e; }
+  @media print {
+    body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    .page { padding: 20px; }
+  }
+`
 
 // ─── Build WhatsApp message text ─────────────────────────────────────────────
 function buildWhatsAppText(
@@ -29,7 +74,8 @@ function buildWhatsAppText(
   patient: Patient | undefined,
   doctor: Doctor | undefined,
   payment: Payment,
-  clinic: ClinicInfo
+  clinic: ClinicInfo,
+  appointment?: { date: string; time: string }
 ): string {
   const lines = [
     `*${clinic.name} — Payment Receipt*`,
@@ -38,6 +84,7 @@ function buildWhatsAppText(
     ``,
     `*Patient:* ${patient?.name ?? "—"}`,
     `*Doctor:* ${doctor?.name ?? "—"} (${doctor?.specialty ?? ""})`,
+    appointment ? `*Appointment:* ${appointment.date} at ${appointment.time}` : "",
     ``,
     `*Bill Summary:*`,
     ...invoice.lineItems.map((item) => `  • ${item.description}: Rs. ${item.amount * item.quantity}`),
@@ -66,47 +113,7 @@ function printReceipt(html: string) {
 <head>
   <meta charset="utf-8" />
   <title>Invoice Receipt</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; }
-    .page { max-width: 700px; margin: 0 auto; padding: 32px 40px; }
-    .header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #0f766e; }
-    .logo-box { width: 56px; height: 56px; border-radius: 12px; background: #0f766e; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; }
-    .logo-box img { width: 100%; height: 100%; object-fit: cover; }
-    .logo-box svg { width: 28px; height: 28px; color: #fff; }
-    .clinic-name { font-size: 20px; font-weight: 700; color: #0f766e; }
-    .clinic-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
-    .receipt-title { text-align: right; margin-left: auto; }
-    .receipt-title h1 { font-size: 22px; font-weight: 800; color: #0f766e; letter-spacing: 2px; }
-    .receipt-title p { font-size: 11px; color: #6b7280; margin-top: 2px; }
-    .status-badge { display: inline-block; background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 20px; padding: 4px 14px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 20px; }
-    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-    .meta-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; }
-    .meta-box .label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
-    .meta-box .value { font-size: 13px; font-weight: 600; color: #111827; }
-    .meta-box .sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
-    .section-title { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; margin-top: 20px; }
-    table { width: 100%; border-collapse: collapse; }
-    th { background: #f3f4f6; text-align: left; font-size: 11px; color: #6b7280; padding: 8px 12px; border-bottom: 1px solid #e5e7eb; }
-    th.right { text-align: right; }
-    td { padding: 9px 12px; border-bottom: 1px solid #f3f4f6; font-size: 13px; }
-    td.right { text-align: right; }
-    td.cap { text-transform: capitalize; font-size: 11px; }
-    .total-row td { font-weight: 700; font-size: 14px; background: #f9fafb; }
-    .payment-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-top: 10px; }
-    .payment-box { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 14px; }
-    .payment-box.red { background: #fff7ed; border-color: #fed7aa; }
-    .payment-box .label { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
-    .payment-box .amount { font-size: 18px; font-weight: 800; color: #065f46; }
-    .payment-box.red .amount { color: #c2410c; }
-    .divider { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
-    .footer { text-align: center; font-size: 11px; color: #9ca3af; margin-top: 24px; padding-top: 16px; border-top: 1px dashed #d1d5db; }
-    .footer strong { color: #0f766e; }
-    @media print {
-      body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-      .page { padding: 20px; }
-    }
-  </style>
+  <style>${RECEIPT_STYLES}</style>
 </head>
 <body>
   <div class="page">
@@ -124,7 +131,8 @@ function buildReceiptHTML(
   patient: Patient | undefined,
   doctor: Doctor | undefined,
   payment: Payment,
-  clinic: ClinicInfo
+  clinic: ClinicInfo,
+  appointment?: { date: string; time: string }
 ): string {
   const invoiceNo = invoice.id.slice(-8).toUpperCase()
   const payDate = new Date(payment.collectedAt).toLocaleString("en-PK", {
@@ -153,6 +161,14 @@ function buildReceiptHTML(
 
   const balanceZero = invoice.balance <= 0
 
+  const appointmentRow = appointment
+    ? `<div class="meta-box">
+        <div class="label">Appointment</div>
+        <div class="value">${appointment.date}</div>
+        <div class="sub">${appointment.time}</div>
+      </div>`
+    : ""
+
   return `
   <div class="header">
     <div class="logo-box">${logoHTML}</div>
@@ -179,6 +195,7 @@ function buildReceiptHTML(
       <div class="value">${doctor?.name ?? "—"}</div>
       <div class="sub">${doctor?.specialty ?? ""}</div>
     </div>
+    ${appointmentRow}
     <div class="meta-box">
       <div class="label">Invoice Date</div>
       <div class="value">${createdDate}</div>
@@ -262,18 +279,85 @@ export function InvoiceReceiptDialog({
   doctor,
   latestPayment,
   clinicSettings,
+  appointment,
 }: InvoiceReceiptDialogProps) {
-  const receiptRef = useRef<HTMLDivElement>(null)
   const balanceZero = invoice.balance <= 0
+  const [downloading, setDownloading] = useState(false)
 
   const handlePrint = () => {
-    const html = buildReceiptHTML(invoice, patient, doctor, latestPayment, clinicSettings)
+    const html = buildReceiptHTML(invoice, patient, doctor, latestPayment, clinicSettings, appointment)
     printReceipt(html)
+  }
+
+  const handleDownloadPDF = async () => {
+    setDownloading(true)
+    try {
+      const html2canvas = (await import("html2canvas")).default
+      const { jsPDF } = await import("jspdf")
+
+      const receiptHTML = buildReceiptHTML(invoice, patient, doctor, latestPayment, clinicSettings, appointment)
+
+      // Render inside an isolated iframe so the main document's :root CSS
+      // (Tailwind 4 uses oklch/lab color functions) never reaches html2canvas.
+      const iframe = document.createElement("iframe")
+      iframe.style.cssText =
+        "position:fixed;top:-99999px;left:-99999px;width:780px;border:none;visibility:hidden;"
+      document.body.appendChild(iframe)
+
+      const iframeDoc = iframe.contentDocument!
+      iframeDoc.open()
+      iframeDoc.write(
+        `<!DOCTYPE html><html><head><meta charset="utf-8"/>` +
+        `<style>${RECEIPT_STYLES}</style></head>` +
+        `<body><div class="page">${receiptHTML}</div></body></html>`
+      )
+      iframeDoc.close()
+
+      // Wait for layout, then size iframe to full content height so nothing is clipped
+      await new Promise<void>((r) => setTimeout(r, 200))
+      const contentHeight = iframeDoc.documentElement.scrollHeight
+      iframe.style.height = `${contentHeight}px`
+      await new Promise<void>((r) => setTimeout(r, 100))
+
+      const canvas = await html2canvas(iframeDoc.body, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        width: 780,
+        height: contentHeight,
+        windowWidth: 780,
+        windowHeight: contentHeight,
+      })
+
+      document.body.removeChild(iframe)
+
+      const imgData = canvas.toDataURL("image/png")
+      const pdf = new jsPDF("p", "mm", "a4")
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+
+      // Handle multi-page receipts
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      if (pdfHeight <= pageHeight) {
+        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight)
+      } else {
+        let yOffset = 0
+        while (yOffset < pdfHeight) {
+          if (yOffset > 0) pdf.addPage()
+          pdf.addImage(imgData, "PNG", 0, -yOffset, pdfWidth, pdfHeight)
+          yOffset += pageHeight
+        }
+      }
+
+      pdf.save(`receipt-${invoice.id.slice(-8).toUpperCase()}.pdf`)
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const handleWhatsApp = () => {
     if (!patient?.phone) return
-    const text = buildWhatsAppText(invoice, patient, doctor, latestPayment, clinicSettings)
+    const text = buildWhatsAppText(invoice, patient, doctor, latestPayment, clinicSettings, appointment)
     window.open(`https://wa.me/?text=${text}`, "_blank")
   }
 
@@ -282,9 +366,36 @@ export function InvoiceReceiptDialog({
     timeStyle: "short",
   })
 
+  // Build meta items — include appointment if available
+  const metaItems = [
+    {
+      label: "Patient",
+      value: patient?.name ?? "—",
+      sub: [patient?.phone, patient?.age ? `Age ${patient.age}` : ""].filter(Boolean).join(" · "),
+    },
+    {
+      label: "Doctor",
+      value: doctor?.name ?? "—",
+      sub: doctor?.specialty ?? "",
+    },
+    ...(appointment
+      ? [{ label: "Appointment", value: appointment.date, sub: appointment.time }]
+      : []),
+    {
+      label: "Invoice Date",
+      value: new Date(invoice.createdAt).toLocaleDateString("en-PK", { dateStyle: "medium" }),
+      sub: "",
+    },
+    {
+      label: "Payment Date",
+      value: payDate,
+      sub: `By: ${latestPayment.collectedBy}`,
+    },
+  ]
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[640px] p-0 gap-0 overflow-hidden">
+      <DialogContent showCloseButton={false} className="sm:max-w-[640px] p-0 gap-0 overflow-hidden">
         {/* Action bar */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-muted/30">
           <div>
@@ -299,23 +410,29 @@ export function InvoiceReceiptDialog({
               variant="outline"
               className="gap-1.5 text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/5"
               onClick={handleWhatsApp}
-              title="Share on WhatsApp (non-functional demo)"
             >
               <MessageCircle className="h-4 w-4" />
               WhatsApp
             </Button>
-            <Button size="sm" className="gap-1.5" onClick={handlePrint}>
-              <Download className="h-4 w-4" />
-              Download PDF
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handlePrint}>
+              <Printer className="h-4 w-4" />
+              Print
             </Button>
+            <Button size="sm" className="gap-1.5" onClick={handleDownloadPDF} disabled={downloading}>
+              <Download className="h-4 w-4" />
+              {downloading ? "Saving…" : "Download PDF"}
+            </Button>
+            <DialogClose asChild>
+              <Button size="sm" variant="ghost" className="h-8 w-8 p-0 ml-1">
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close</span>
+              </Button>
+            </DialogClose>
           </div>
         </div>
 
         {/* Receipt preview */}
-        <div
-          ref={receiptRef}
-          className="overflow-y-auto max-h-[70vh] p-5 bg-white"
-        >
+        <div className="overflow-y-auto max-h-[70vh] p-5 bg-white">
           {/* Header */}
           <div className="flex items-start gap-4 pb-4 border-b border-gray-200">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary overflow-hidden">
@@ -356,12 +473,7 @@ export function InvoiceReceiptDialog({
 
           {/* Meta grid */}
           <div className="grid grid-cols-2 gap-3 mb-5">
-            {[
-              { label: "Patient", value: patient?.name ?? "—", sub: [patient?.phone, patient?.age ? `Age ${patient.age}` : ""].filter(Boolean).join(" · ") },
-              { label: "Doctor", value: doctor?.name ?? "—", sub: doctor?.specialty ?? "" },
-              { label: "Invoice Date", value: new Date(invoice.createdAt).toLocaleDateString("en-PK", { dateStyle: "medium" }), sub: "" },
-              { label: "Payment Date", value: payDate, sub: `By: ${latestPayment.collectedBy}` },
-            ].map(({ label, value, sub }) => (
+            {metaItems.map(({ label, value, sub }) => (
               <div key={label} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
                 <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">{label}</p>
                 <p className="text-sm font-semibold text-gray-900">{value}</p>
