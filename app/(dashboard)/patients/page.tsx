@@ -58,6 +58,7 @@ import { AddPatientModal } from "@/components/add-patient-modal"
 import { toast } from "sonner"
 import { BLOOD_GROUPS } from "@/lib/constants"
 import type { Patient } from "@/lib/types"
+import { calcAge } from "@/lib/utils"
 
 // Avatar color palette — cycles through based on first char code
 const AVATAR_COLORS = [
@@ -454,7 +455,7 @@ function EditPatientModal({
   const [name, setName] = useState(patient.name)
   const [phone, setPhone] = useState(patient.phone)
   const [gender, setGender] = useState<"male" | "female" | "other">(patient.gender)
-  const [age, setAge] = useState(String(patient.age))
+  const [dateOfBirth, setDateOfBirth] = useState(patient.dateOfBirth ?? "")
   const [bloodGroup, setBloodGroup] = useState(patient.bloodGroup ?? "")
   const [doctorId, setDoctorId] = useState(patient.assignedDoctorId ?? "")
   const [email, setEmail] = useState(patient.email ?? "")
@@ -469,7 +470,7 @@ function EditPatientModal({
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!name || !phone || !gender || !age) {
+    if (!name || !phone || !gender || !dateOfBirth) {
       toast.error("Please fill in all required fields.")
       return
     }
@@ -480,7 +481,8 @@ function EditPatientModal({
         phone,
         email: email.trim(),
         gender,
-        age: parseInt(age),
+        dateOfBirth,
+        age: calcAge(dateOfBirth),
         address: address.trim(),
         bloodGroup: bloodGroup || undefined,
         notes: notes.trim(),
@@ -507,7 +509,7 @@ function EditPatientModal({
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ep-name" className="text-sm font-medium">
                 Full Name <span className="text-red-500">*</span>
@@ -530,7 +532,7 @@ function EditPatientModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="col-span-2 flex flex-col gap-1.5">
               <Label className="text-sm font-medium">Gender <span className="text-red-500">*</span></Label>
               <div className="grid grid-cols-2 gap-2 h-10">
@@ -553,8 +555,15 @@ function EditPatientModal({
               </div>
             </div>
             <div className="col-span-1 flex flex-col gap-1.5">
-              <Label htmlFor="ep-age" className="text-sm font-medium">Age <span className="text-red-500">*</span></Label>
-              <Input id="ep-age" type="number" value={age} onChange={(e) => setAge(e.target.value)} className="h-10" min={0} max={150} />
+              <Label htmlFor="ep-dob" className="text-sm font-medium">Date of Birth <span className="text-red-500">*</span></Label>
+              <Input
+                id="ep-dob"
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => setDateOfBirth(e.target.value)}
+                className="h-10"
+                max={new Date().toISOString().split("T")[0]}
+              />
             </div>
             <div className="col-span-1 flex flex-col gap-1.5">
               <Label className="text-sm font-medium">Blood Group</Label>
@@ -567,7 +576,7 @@ function EditPatientModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ep-email" className="text-sm font-medium">Email</Label>
               <Input id="ep-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-10" />
@@ -578,7 +587,7 @@ function EditPatientModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label className="text-sm font-medium">Assigned Doctor</Label>
               <Select value={doctorId} onValueChange={setDoctorId}>

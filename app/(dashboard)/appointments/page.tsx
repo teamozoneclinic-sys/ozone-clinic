@@ -154,7 +154,7 @@ export default function AppointmentsPage() {
               <Button variant="outline" size="icon" onClick={() => setCurrentDate(navigateDate(currentDate, view, -1))}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="min-w-[200px] text-center text-sm font-medium">{dateLabel}</span>
+              <span className="min-w-[160px] text-center text-sm font-medium sm:min-w-[200px]">{dateLabel}</span>
               <Button variant="outline" size="icon" onClick={() => setCurrentDate(navigateDate(currentDate, view, 1))}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -162,7 +162,7 @@ export default function AppointmentsPage() {
                 Today
               </Button>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {!isDoctor && (
                 <Select value={doctorFilter} onValueChange={setDoctorFilter}>
                   <SelectTrigger className="w-[180px]">

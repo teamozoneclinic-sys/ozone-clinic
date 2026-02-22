@@ -143,7 +143,7 @@ export function EditDoctorModal({ doctor, onClose, onSave }: EditDoctorModalProp
           <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-4">
 
             {/* Name & Email */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="ed-name">Full Name *</Label>
                 <Input id="ed-name" value={name} onChange={(e) => setName(e.target.value)} className="h-10" />
@@ -155,7 +155,7 @@ export function EditDoctorModal({ doctor, onClose, onSave }: EditDoctorModalProp
             </div>
 
             {/* Specialty & Type */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label>Specialty *</Label>
                 <Select value={specialty} onValueChange={setSpecialty}>
@@ -177,7 +177,7 @@ export function EditDoctorModal({ doctor, onClose, onSave }: EditDoctorModalProp
             </div>
 
             {/* Phone & Fee */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="ed-phone">
                   <Phone className="mr-1 inline h-3.5 w-3.5 text-muted-foreground" />Phone

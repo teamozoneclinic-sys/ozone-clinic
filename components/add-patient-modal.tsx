@@ -24,6 +24,7 @@ import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
 import { BLOOD_GROUPS } from "@/lib/constants"
 import { UserPlus } from "lucide-react"
+import { calcAge } from "@/lib/utils"
 
 interface AddPatientModalProps {
   open: boolean
@@ -35,7 +36,7 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
   const [gender, setGender] = useState<"male" | "female" | "">("")
-  const [age, setAge] = useState("")
+  const [dateOfBirth, setDateOfBirth] = useState("")
   const [bloodGroup, setBloodGroup] = useState("")
   const [doctorId, setDoctorId] = useState("")
   const [email, setEmail] = useState("")
@@ -50,13 +51,13 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
   }
 
   const reset = () => {
-    setName(""); setPhone(""); setGender(""); setAge("")
+    setName(""); setPhone(""); setGender(""); setDateOfBirth("")
     setBloodGroup(""); setDoctorId(""); setEmail(""); setAddress(""); setNotes("")
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!name || !phone || !gender || !age) {
+    if (!name || !phone || !gender || !dateOfBirth) {
       toast.error("Please fill in all required fields.")
       return
     }
@@ -72,8 +73,8 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
         phone,
         email: email.trim(),
         gender: gender as "male" | "female",
-        age: parseInt(age),
-        dateOfBirth: "",
+        dateOfBirth,
+        age: calcAge(dateOfBirth),
         address: address.trim(),
         bloodGroup: bloodGroup || undefined,
         tags: [],
@@ -113,7 +114,7 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
         <form onSubmit={handleSubmit} className="px-6 py-5 flex flex-col gap-4">
 
           {/* ── Row 1: Full Name | Phone ── */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="p-name" className="text-sm font-medium">
                 Full Name <span className="text-red-500">*</span>
@@ -143,8 +144,8 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
             </div>
           </div>
 
-          {/* ── Row 2: Gender (×2) | Age (×1) | Blood Group (×1) ── */}
-          <div className="grid grid-cols-4 gap-4">
+          {/* ── Row 2: Gender (×2) | DOB (×1) | Blood Group (×1) ── */}
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="col-span-2 flex flex-col gap-1.5">
               <Label className="text-sm font-medium">
                 Gender <span className="text-red-500">*</span>
@@ -176,18 +177,16 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
             </div>
 
             <div className="col-span-1 flex flex-col gap-1.5">
-              <Label htmlFor="p-age" className="text-sm font-medium">
-                Age <span className="text-red-500">*</span>
+              <Label htmlFor="p-dob" className="text-sm font-medium">
+                Date of Birth <span className="text-red-500">*</span>
               </Label>
               <Input
-                id="p-age"
-                type="number"
-                value={age}
-                onChange={(e) => setAge(e.target.value)}
-                placeholder="e.g. 32"
+                id="p-dob"
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => setDateOfBirth(e.target.value)}
                 className="h-10"
-                min={0}
-                max={150}
+                max={new Date().toISOString().split("T")[0]}
               />
             </div>
 
@@ -207,7 +206,7 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
           </div>
 
           {/* ── Row 3: Email | Address ── */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="p-email" className="text-sm font-medium">Email</Label>
               <Input
@@ -232,7 +231,7 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
           </div>
 
           {/* ── Row 4: Assign Doctor | Additional Notes ── */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label className="text-sm font-medium">Assign a Doctor</Label>
               <Select value={doctorId} onValueChange={setDoctorId}>

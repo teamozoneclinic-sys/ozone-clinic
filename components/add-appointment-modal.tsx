@@ -345,7 +345,7 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
     <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
       <DialogContent
         showCloseButton={false}
-        className="sm:max-w-[880px] p-0 gap-0 overflow-hidden h-[640px] flex flex-col"
+        className="sm:max-w-[880px] p-0 gap-0 overflow-hidden max-h-[90svh] md:h-[640px] flex flex-col"
       >
         {/* ── Full-width Header ── */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
@@ -372,10 +372,10 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
         </div>
 
         {/* ── Two-panel body ── */}
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 flex-col md:flex-row overflow-auto md:overflow-hidden">
 
           {/* Left: Patient list */}
-          <div className="w-[260px] shrink-0 border-r border-border flex flex-col bg-muted/20">
+          <div className="w-full md:w-[260px] shrink-0 border-b md:border-b-0 md:border-r border-border flex flex-col bg-muted/20 max-h-[200px] md:max-h-none">
             <div className="px-3 pt-3 pb-2 shrink-0">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 px-1">
                 Select Patient <span className="text-red-500">*</span>
@@ -443,7 +443,7 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
           </div>
 
           {/* Right: Form fields */}
-          <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-w-0">
+          <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-w-0 min-h-0">
             <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-4">
 
               {/* Doctor */}
@@ -459,7 +459,7 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
               </div>
 
               {/* Date | Duration */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="apt-date" className="text-sm font-medium">
                     Date <span className="text-red-500">*</span>

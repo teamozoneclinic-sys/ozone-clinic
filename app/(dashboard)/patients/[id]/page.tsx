@@ -148,8 +148,13 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
                   <div className="flex items-center gap-3">
                     <User className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <p className="text-sm text-muted-foreground">Gender / Age</p>
+                      <p className="text-sm text-muted-foreground">Gender / Age / DOB</p>
                       <p className="text-sm font-medium capitalize">{patient.gender}, {patient.age} years old</p>
+                      {patient.dateOfBirth && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(patient.dateOfBirth).toLocaleDateString("en-PK", { day: "2-digit", month: "short", year: "numeric" })}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">

@@ -6,8 +6,8 @@ export interface IPatient extends Document {
   phone: string
   email?: string
   gender: "male" | "female" | "other"
-  age: number
   dateOfBirth: string
+  age: number
   address?: string
   bloodGroup?: string
   tags: string[]
@@ -38,8 +38,8 @@ const PatientSchema = new Schema<IPatient>(
     phone: { type: String, required: true },
     email: { type: String },
     gender: { type: String, enum: ["male", "female", "other"], required: true },
-    age: { type: Number, required: true },
-    dateOfBirth: { type: String, default: "" },
+    dateOfBirth: { type: String, required: true },
+    age: { type: Number, default: 0 },
     address: { type: String },
     bloodGroup: { type: String },
     tags: [{ type: String }],

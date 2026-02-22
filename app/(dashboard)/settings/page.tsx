@@ -703,7 +703,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <Separator />
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="hours-start">Working Hours Start</Label>
                     <Input
@@ -924,7 +924,7 @@ function EditDoctorModal({
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ed-name">Full Name *</Label>
               <Input id="ed-name" value={name} onChange={(e) => setName(e.target.value)} className="h-10" />
@@ -935,7 +935,7 @@ function EditDoctorModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label>Specialty *</Label>
               <Select value={specialty} onValueChange={setSpecialty}>
@@ -956,7 +956,7 @@ function EditDoctorModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="ed-phone">
                 <Phone className="mr-1 inline h-3.5 w-3.5 text-muted-foreground" />Phone

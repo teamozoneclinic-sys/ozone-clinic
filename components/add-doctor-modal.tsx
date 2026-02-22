@@ -193,7 +193,7 @@ export function AddDoctorModal({ open, onOpenChange }: AddDoctorModalProps) {
           <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5">
 
             {/* Row 1: Name | Phone */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="doc-name" className="text-sm font-medium">
                   Full Name <span className="text-red-500">*</span>
@@ -220,7 +220,7 @@ export function AddDoctorModal({ open, onOpenChange }: AddDoctorModalProps) {
             </div>
 
             {/* Row 2: Email | Specialty */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="doc-email" className="text-sm font-medium">Email</Label>
                 <Input
@@ -250,7 +250,7 @@ export function AddDoctorModal({ open, onOpenChange }: AddDoctorModalProps) {
             </div>
 
             {/* Row 3: Type | Consultation Fee */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label className="text-sm font-medium">
                   Doctor Type <span className="text-red-500">*</span>

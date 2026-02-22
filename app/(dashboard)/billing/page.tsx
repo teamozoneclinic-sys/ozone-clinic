@@ -322,8 +322,8 @@ function InvoiceTable({
               <TableHead className="w-[100px]">Invoice</TableHead>
               <TableHead>Patient</TableHead>
               <TableHead className="hidden md:table-cell">Doctor</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead className="text-right">Paid</TableHead>
+              <TableHead className="hidden sm:table-cell text-right">Total</TableHead>
+              <TableHead className="hidden sm:table-cell text-right">Paid</TableHead>
               <TableHead className="text-right">Balance</TableHead>
               <TableHead className="text-center">Status</TableHead>
               <TableHead className="hidden lg:table-cell">Date</TableHead>
@@ -368,10 +368,10 @@ function InvoiceTable({
                     <TableCell className="hidden md:table-cell text-muted-foreground text-sm">
                       {doctor?.name ?? "-"}
                     </TableCell>
-                    <TableCell className="text-right font-medium">
+                    <TableCell className="hidden sm:table-cell text-right font-medium">
                       {amountsHidden ? <span className="text-muted-foreground">Rs. {MASKED}</span> : `Rs. ${inv.totalAmount.toLocaleString()}`}
                     </TableCell>
-                    <TableCell className="text-right text-emerald-600 font-medium">
+                    <TableCell className="hidden sm:table-cell text-right text-emerald-600 font-medium">
                       {amountsHidden ? <span className="text-muted-foreground">Rs. {MASKED}</span> : `Rs. ${inv.paidAmount.toLocaleString()}`}
                     </TableCell>
                     <TableCell className={`text-right font-semibold ${inv.balance > 0 ? "text-red-600" : "text-foreground"}`}>
