@@ -1005,6 +1005,8 @@ function UserManagementSection() {
   const isAdmin = currentUser?.role === "admin"
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [editingUser, setEditingUser] = useState<UserRow | null>(null)
+  const [deletingUser, setDeletingUser] = useState<UserRow | null>(null)
+  const [deletingUserBusy, setDeletingUserBusy] = useState(false)
   const [users, setUsers] = useState<UserRow[]>([])
   const [loadingUsers, setLoadingUsers] = useState(true)
 
@@ -1025,6 +1027,23 @@ function UserManagementSection() {
     setUsers((prev) => prev.map((u) => (u.id === user.id ? user : u)))
     toast.success(`Credentials updated for ${user.name}.`)
     setEditingUser(null)
+  }
+
+  const handleDeleteUser = async () => {
+    if (!deletingUser) return
+    setDeletingUserBusy(true)
+    try {
+      const res = await fetch(`/api/users/${deletingUser.id}`, { method: "DELETE" })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Failed to delete user.")
+      setUsers((prev) => prev.filter((u) => u.id !== deletingUser.id))
+      toast.success(`User "${deletingUser.name}" deleted.`)
+      setDeletingUser(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete user.")
+    } finally {
+      setDeletingUserBusy(false)
+    }
   }
 
   return (
@@ -1083,14 +1102,26 @@ function UserManagementSection() {
                   </TableCell>
                   {isAdmin && (
                     <TableCell>
-                      <button
-                        type="button"
-                        onClick={() => setEditingUser(u)}
-                        className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
-                        title="Edit credentials"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingUser(u)}
+                          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                          title="Edit credentials"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        {u.id !== currentUser?.id && (
+                          <button
+                            type="button"
+                            onClick={() => setDeletingUser(u)}
+                            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all"
+                            title="Delete user"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>
@@ -1137,6 +1168,29 @@ function UserManagementSection() {
           onSaved={handleUserUpdated}
         />
       )}
+
+      <AlertDialog open={!!deletingUser} onOpenChange={(open) => { if (!open) setDeletingUser(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete User</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <strong>{deletingUser?.name}</strong>? This action cannot be undone and
+              will permanently remove their account from the system.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingUserBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteUser}
+              disabled={deletingUserBusy}
+              className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
+            >
+              {deletingUserBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1.5 h-4 w-4" />}
+              Delete User
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

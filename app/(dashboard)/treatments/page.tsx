@@ -57,7 +57,9 @@ function TreatmentDashboard() {
     getTreatmentByAppointment,
   } = useStore()
 
-  const myDoctor = doctors.find((d) => d.email === currentUser.email)
+  const myDoctor = currentUser.doctorId
+    ? doctors.find((d) => d.id === currentUser.doctorId)
+    : doctors.find((d) => d.email.toLowerCase() === currentUser.email.toLowerCase())
 
   const todayAppointments = useMemo(() => {
     if (!myDoctor) return []

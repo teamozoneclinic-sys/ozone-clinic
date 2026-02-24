@@ -10,6 +10,7 @@ export interface User {
   role: Role
   email: string
   avatar?: string
+  doctorId?: string
 }
 
 export type Gender = "male" | "female" | "other"

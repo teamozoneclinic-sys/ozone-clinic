@@ -97,7 +97,8 @@ export default function AppointmentsPage() {
   const isDoctor = currentUser?.role === "doctor"
   const myDoctorId = useMemo(() => {
     if (!isDoctor) return null
-    return doctors.find((d) => d.email === currentUser?.email)?.id ?? null
+    if (currentUser?.doctorId) return currentUser.doctorId
+    return doctors.find((d) => d.email.toLowerCase() === currentUser?.email?.toLowerCase())?.id ?? null
   }, [isDoctor, doctors, currentUser])
 
   const [view, setView] = useState<ViewMode>("week")
