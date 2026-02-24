@@ -5,7 +5,7 @@ import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Select,
   SelectContent,
@@ -21,6 +21,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Separator } from "@/components/ui/separator"
 import {
   Plus,
@@ -31,8 +41,14 @@ import {
   Stethoscope,
   Receipt,
   FileText,
+  Pencil,
+  Trash2,
+  Save,
+  X,
+  Loader2,
 } from "lucide-react"
 import { AddAppointmentModal } from "@/components/add-appointment-modal"
+import { toast } from "sonner"
 import type { Appointment } from "@/lib/types"
 import Link from "next/link"
 import { getPKTDateString, toPKTDateString } from "@/lib/pkt"
@@ -91,10 +107,23 @@ function navigateDate(dateStr: string, view: ViewMode, dir: number): string {
 }
 
 export default function AppointmentsPage() {
-  const { appointments, doctors, currentUser, getPatient, getDoctor, getInvoice } = useStore()
+  const {
+    appointments,
+    doctors,
+    currentUser,
+    getPatient,
+    getDoctor,
+    getInvoice,
+    updateAppointmentStatus,
+    deleteAppointment,
+    updateAppointment,
+  } = useStore()
 
   // For doctor role, lock the filter to their own doctor record
   const isDoctor = currentUser?.role === "doctor"
+  const isAdmin = currentUser?.role === "admin"
+  const canManage = isAdmin || currentUser?.role === "manager"
+
   const myDoctorId = useMemo(() => {
     if (!isDoctor) return null
     if (currentUser?.doctorId) return currentUser.doctorId
@@ -106,7 +135,73 @@ export default function AppointmentsPage() {
   const [doctorFilter, setDoctorFilter] = useState<string>("all")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [showAddModal, setShowAddModal] = useState(false)
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null)
+
+  // Use ID-based selection so the Sheet always reflects the latest store data
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null)
+  const selectedAppointment = useMemo(
+    () => appointments.find((a) => a.id === selectedAppointmentId) ?? null,
+    [appointments, selectedAppointmentId]
+  )
+
+  const [busyAction, setBusyAction] = useState(false)
+
+  const closeSheet = () => setSelectedAppointmentId(null)
+
+  const handleCancel = async () => {
+    if (!selectedAppointmentId) return
+    setBusyAction(true)
+    try {
+      await updateAppointmentStatus(selectedAppointmentId, "cancelled")
+      toast.success("Appointment cancelled.")
+      closeSheet()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to cancel.")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
+  const handleComplete = async () => {
+    if (!selectedAppointmentId) return
+    setBusyAction(true)
+    try {
+      await updateAppointmentStatus(selectedAppointmentId, "completed")
+      toast.success("Appointment marked as completed.")
+      closeSheet()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update.")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!selectedAppointmentId) return
+    setBusyAction(true)
+    try {
+      await deleteAppointment(selectedAppointmentId)
+      toast.success("Appointment deleted.")
+      closeSheet()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete.")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
+  const handleUpdateTime = async (date: string, time: string, duration: number) => {
+    if (!selectedAppointmentId) return
+    setBusyAction(true)
+    try {
+      await updateAppointment(selectedAppointmentId, { date, time, duration })
+      toast.success("Appointment rescheduled.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to reschedule.")
+      throw err // re-throw so the form can stay open
+    } finally {
+      setBusyAction(false)
+    }
+  }
 
   const filteredAppointments = useMemo(() => {
     return appointments.filter((a) => {
@@ -230,7 +325,7 @@ export default function AppointmentsPage() {
                         return (
                           <button
                             key={apt.id}
-                            onClick={() => setSelectedAppointment(apt)}
+                            onClick={() => setSelectedAppointmentId(apt.id)}
                             className="flex flex-col rounded-lg bg-primary/10 p-2 text-left transition-colors hover:bg-primary/20 w-full sm:w-auto sm:min-w-[200px]"
                           >
                             <span className="text-sm font-medium text-foreground">{patient?.name}</span>
@@ -286,7 +381,7 @@ export default function AppointmentsPage() {
                           return (
                             <button
                               key={apt.id}
-                              onClick={() => setSelectedAppointment(apt)}
+                              onClick={() => setSelectedAppointmentId(apt.id)}
                               className="flex flex-col rounded-md bg-primary/10 p-1.5 text-left text-xs transition-colors hover:bg-primary/20"
                             >
                               <span className="font-medium text-foreground truncate">{patient?.name}</span>
@@ -343,7 +438,7 @@ export default function AppointmentsPage() {
                             return (
                               <button
                                 key={apt.id}
-                                onClick={() => setSelectedAppointment(apt)}
+                                onClick={() => setSelectedAppointmentId(apt.id)}
                                 className="rounded bg-primary/10 px-1 py-0.5 text-left text-[10px] font-medium text-foreground truncate hover:bg-primary/20"
                               >
                                 {apt.time} {patient?.name?.split(" ")[0]}
@@ -365,7 +460,7 @@ export default function AppointmentsPage() {
       )}
 
       {/* Appointment Detail Sheet */}
-      <Sheet open={!!selectedAppointment} onOpenChange={() => setSelectedAppointment(null)}>
+      <Sheet open={!!selectedAppointmentId} onOpenChange={(open) => { if (!open) closeSheet() }}>
         <SheetContent className="overflow-y-auto sm:max-w-md">
           {selectedAppointment && (
             <AppointmentDetailContent
@@ -373,6 +468,13 @@ export default function AppointmentsPage() {
               getPatient={getPatient}
               getDoctor={getDoctor}
               getInvoice={getInvoice}
+              onCancel={handleCancel}
+              onComplete={handleComplete}
+              onDelete={handleDelete}
+              onUpdateTime={handleUpdateTime}
+              isAdmin={isAdmin}
+              canManage={canManage}
+              isBusy={busyAction}
             />
           )}
         </SheetContent>
@@ -388,15 +490,48 @@ function AppointmentDetailContent({
   getPatient,
   getDoctor,
   getInvoice,
+  onCancel,
+  onComplete,
+  onDelete,
+  onUpdateTime,
+  isAdmin,
+  canManage,
+  isBusy,
 }: {
   appointment: Appointment
   getPatient: (id: string) => ReturnType<ReturnType<typeof useStore>["getPatient"]>
   getDoctor: (id: string) => ReturnType<ReturnType<typeof useStore>["getDoctor"]>
   getInvoice: (id: string) => ReturnType<ReturnType<typeof useStore>["getInvoice"]>
+  onCancel: () => Promise<void>
+  onComplete: () => Promise<void>
+  onDelete: () => Promise<void>
+  onUpdateTime: (date: string, time: string, duration: number) => Promise<void>
+  isAdmin: boolean
+  canManage: boolean
+  isBusy: boolean
 }) {
   const patient = getPatient(appointment.patientId)
   const doctor = getDoctor(appointment.doctorId)
   const invoice = getInvoice(appointment.invoiceId)
+
+  const [showModifyTime, setShowModifyTime] = useState(false)
+  const [newDate, setNewDate] = useState(appointment.date)
+  const [newTime, setNewTime] = useState(appointment.time)
+  const [newDuration, setNewDuration] = useState(appointment.duration)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  // Reset form when appointment changes (e.g. external update)
+  const resetModifyForm = () => {
+    setNewDate(appointment.date)
+    setNewTime(appointment.time)
+    setNewDuration(appointment.duration)
+    setShowModifyTime(false)
+  }
+
+  const isScheduled = appointment.status === "scheduled"
+  const isCheckedIn = appointment.status === "checked-in"
+  const isInProgress = appointment.status === "in-progress"
+  const isActive = isScheduled || isCheckedIn || isInProgress
 
   return (
     <>
@@ -406,15 +541,18 @@ function AppointmentDetailContent({
           {appointment.date} at {appointment.time}
         </SheetDescription>
       </SheetHeader>
+
       <div className="mt-6 flex flex-col gap-5">
-        <div className="flex items-center gap-2">
+        {/* Status + type */}
+        <div className="flex items-center gap-2 flex-wrap">
           <StatusBadge status={appointment.status} />
           <Badge variant="outline">{appointment.type}</Badge>
         </div>
 
+        {/* Info rows */}
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3">
-            <User className="h-4 w-4 text-muted-foreground" />
+            <User className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div>
               <p className="text-xs text-muted-foreground">Patient</p>
               <Link href={`/patients/${appointment.patientId}`} className="text-sm font-medium hover:text-primary">
@@ -423,66 +561,207 @@ function AppointmentDetailContent({
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Stethoscope className="h-4 w-4 text-muted-foreground" />
+            <Stethoscope className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div>
               <p className="text-xs text-muted-foreground">Doctor</p>
               <p className="text-sm font-medium">{doctor?.name ?? "Unknown"}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <Clock className="h-4 w-4 text-muted-foreground" />
+            <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div>
-              <p className="text-xs text-muted-foreground">Duration</p>
-              <p className="text-sm font-medium">{appointment.duration} minutes</p>
+              <p className="text-xs text-muted-foreground">Date / Time / Duration</p>
+              <p className="text-sm font-medium">{appointment.date} · {appointment.time} · {appointment.duration} min</p>
             </div>
           </div>
           {invoice && (
             <div className="flex items-center gap-3">
-              <Receipt className="h-4 w-4 text-muted-foreground" />
+              <Receipt className="h-4 w-4 shrink-0 text-muted-foreground" />
               <div>
                 <p className="text-xs text-muted-foreground">Invoice</p>
                 <Link href={`/billing/${invoice.id}`} className="text-sm font-medium hover:text-primary">
-                  #{invoice.id} - Rs. {invoice.totalAmount} (<StatusBadge status={invoice.status} />)
+                  #{invoice.id.slice(-8)} — Rs. {invoice.totalAmount.toLocaleString()} (<StatusBadge status={invoice.status} />)
                 </Link>
               </div>
             </div>
           )}
         </div>
 
-        <Separator />
+        {/* Notes */}
+        {(appointment.notes || appointment.receptionNotes || appointment.doctorNotes) && (
+          <>
+            <Separator />
+            {appointment.notes && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <p className="text-sm font-medium">Notes</p>
+                </div>
+                <p className="text-sm text-muted-foreground rounded-lg bg-muted p-3">{appointment.notes}</p>
+              </div>
+            )}
+            {appointment.receptionNotes && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Reception Notes</p>
+                <p className="text-sm text-muted-foreground rounded-lg bg-muted p-3">{appointment.receptionNotes}</p>
+              </div>
+            )}
+            {appointment.doctorNotes && (
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Doctor Notes</p>
+                <p className="text-sm text-muted-foreground rounded-lg bg-muted p-3">{appointment.doctorNotes}</p>
+              </div>
+            )}
+          </>
+        )}
 
-        {appointment.notes && (
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              <p className="text-sm font-medium">Notes</p>
+        {/* ── Actions ── */}
+        {isActive && (
+          <>
+            <Separator />
+
+            {/* Modify Date / Time — for admin + manager, scheduled only */}
+            {canManage && isScheduled && (
+              <div>
+                {!showModifyTime ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-1.5"
+                    onClick={() => setShowModifyTime(true)}
+                    disabled={isBusy}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Modify Date / Time
+                  </Button>
+                ) : (
+                  <div className="rounded-lg border border-border p-3 flex flex-col gap-3 bg-muted/30">
+                    <p className="text-sm font-semibold">Reschedule Appointment</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs text-muted-foreground">Date</label>
+                        <input
+                          type="date"
+                          value={newDate}
+                          onChange={(e) => setNewDate(e.target.value)}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-xs text-muted-foreground">Time</label>
+                        <input
+                          type="time"
+                          value={newTime}
+                          onChange={(e) => setNewTime(e.target.value)}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-xs text-muted-foreground">Duration</label>
+                      <Select value={String(newDuration)} onValueChange={(v) => setNewDuration(Number(v))}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[15, 30, 45, 60, 90, 120].map((d) => (
+                            <SelectItem key={d} value={String(d)}>{d} minutes</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1 gap-1.5"
+                        disabled={isBusy || !newDate || !newTime}
+                        onClick={() =>
+                          onUpdateTime(newDate, newTime, newDuration)
+                            .then(() => setShowModifyTime(false))
+                            .catch(() => {/* error toasted in parent */})
+                        }
+                      >
+                        {isBusy ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Save className="h-3.5 w-3.5" />
+                        )}
+                        Save Changes
+                      </Button>
+                      <Button size="sm" variant="ghost" className="gap-1" onClick={resetModifyForm} disabled={isBusy}>
+                        <X className="h-3.5 w-3.5" />
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Status actions */}
+            <div className="flex flex-col gap-2">
+              {(isCheckedIn || isInProgress) && (
+                <Button variant="outline" size="sm" className="gap-1.5" disabled={isBusy} onClick={onComplete}>
+                  {isBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Mark Completed
+                </Button>
+              )}
+              {(isScheduled || isCheckedIn) && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={isBusy}
+                  onClick={onCancel}
+                >
+                  {isBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Cancel Appointment
+                </Button>
+              )}
+
+              {/* Delete — admin only, scheduled only */}
+              {isAdmin && isScheduled && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                  disabled={isBusy}
+                  onClick={() => setShowDeleteConfirm(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete Appointment
+                </Button>
+              )}
             </div>
-            <p className="text-sm text-muted-foreground rounded-lg bg-muted p-3">{appointment.notes}</p>
-          </div>
+          </>
         )}
-
-        {appointment.receptionNotes && (
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1">Reception Notes</p>
-            <p className="text-sm text-muted-foreground rounded-lg bg-muted p-3">{appointment.receptionNotes}</p>
-          </div>
-        )}
-
-        {appointment.doctorNotes && (
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1">Doctor Notes</p>
-            <p className="text-sm text-muted-foreground rounded-lg bg-muted p-3">{appointment.doctorNotes}</p>
-          </div>
-        )}
-
-        <Separator />
-
-        <div className="flex flex-col gap-2">
-          <Button variant="outline" size="sm">Reschedule</Button>
-          <Button variant="outline" size="sm">Mark Completed</Button>
-          <Button variant="destructive" size="sm">Cancel Appointment</Button>
-        </div>
       </div>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Appointment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the appointment for{" "}
+              <strong>{patient?.name ?? "this patient"}</strong> on{" "}
+              <strong>{appointment.date} at {appointment.time}</strong>.
+              This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isBusy}>Keep It</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isBusy}
+              onClick={onDelete}
+              className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
+            >
+              {isBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1.5 h-4 w-4" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

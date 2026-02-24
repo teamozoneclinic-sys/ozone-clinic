@@ -83,6 +83,9 @@ interface StoreState {
   collectPayment: (invoiceId: string, payment: Omit<Payment, "id">) => Promise<void>
   createTreatment: (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">) => Promise<Treatment>
   updateAppointmentStatus: (appointmentId: string, status: Appointment["status"]) => Promise<void>
+  deleteAppointment: (id: string) => Promise<void>
+  updateAppointment: (id: string, data: Partial<Pick<Appointment, "date" | "time" | "duration">>) => Promise<void>
+  refreshLiveData: () => Promise<void>
   refetch: () => Promise<void>
 
   // Helpers
@@ -366,6 +369,51 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     []
   )
 
+  const deleteAppointment = useCallback(async (id: string) => {
+    await apiFetch(`/api/appointments/${id}`, { method: "DELETE" })
+    setAppointments((prev) => prev.filter((a) => a.id !== id))
+  }, [])
+
+  const updateAppointment = useCallback(
+    async (id: string, data: Partial<Pick<Appointment, "date" | "time" | "duration">>) => {
+      const res = await apiFetch<{ data: Appointment }>(`/api/appointments/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      })
+      setAppointments((prev) => prev.map((a) => (a.id === id ? res.data : a)))
+    },
+    []
+  )
+
+  // ── Live data refresh (polls appointments + treatments + invoices) ─────
+  const refreshLiveData = useCallback(async () => {
+    try {
+      const [appointmentsRes, treatmentsRes, invoicesRes] = await Promise.all([
+        apiFetch<{ data: Appointment[] }>("/api/appointments"),
+        apiFetch<{ data: Treatment[] }>("/api/treatments"),
+        apiFetch<{ data: Invoice[] }>("/api/invoices"),
+      ])
+      setAppointments(appointmentsRes.data)
+      setTreatments(treatmentsRes.data)
+      setInvoices(invoicesRes.data)
+    } catch {
+      // Silent — background refresh failures must not disrupt the UI
+    }
+  }, [])
+
+  // Poll every 30 s; also refresh immediately when the tab regains focus
+  useEffect(() => {
+    const poll = () => {
+      if (document.visibilityState === "visible") refreshLiveData()
+    }
+    const timer = setInterval(poll, 30_000)
+    document.addEventListener("visibilitychange", poll)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener("visibilitychange", poll)
+    }
+  }, [refreshLiveData])
+
   const updateClinicSettings = useCallback(async (data: Partial<ClinicInfo>) => {
     const res = await apiFetch<{ data: ClinicInfo }>("/api/clinic-settings", {
       method: "PUT",
@@ -453,6 +501,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         collectPayment,
         createTreatment,
         updateAppointmentStatus,
+        deleteAppointment,
+        updateAppointment,
+        refreshLiveData,
         refetch: fetchAll,
         getPatient,
         getDoctor,
