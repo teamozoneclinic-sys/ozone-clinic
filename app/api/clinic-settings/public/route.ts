@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import ClinicSettings from "@/lib/models/ClinicSettings"
 
+export const dynamic = "force-dynamic"
+
 // Public endpoint — no auth required — returns only the clinic name for the login page
 export async function GET() {
   try {
