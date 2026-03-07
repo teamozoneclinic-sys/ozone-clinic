@@ -9,7 +9,9 @@ export async function GET() {
   try {
     await connectDB()
     const settings = await ClinicSettings.findOne({})
-    return NextResponse.json({ name: settings?.name ?? "HealthCare Clinic", logo: settings?.logo ?? "" })
+    const res = NextResponse.json({ name: settings?.name ?? "HealthCare Clinic", logo: settings?.logo ?? "" })
+    res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate")
+    return res
   } catch {
     return NextResponse.json({ name: "HealthCare Clinic", logo: "" })
   }

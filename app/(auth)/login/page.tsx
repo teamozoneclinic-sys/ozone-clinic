@@ -18,7 +18,7 @@ export default function LoginPage() {
   const [clinicLogo, setClinicLogo] = useState("")
 
   useEffect(() => {
-    fetch("/api/clinic-settings/public")
+    fetch("/api/clinic-settings/public", { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
         if (d.name) setClinicName(d.name)
