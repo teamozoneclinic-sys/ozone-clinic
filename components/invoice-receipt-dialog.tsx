@@ -385,24 +385,25 @@ export function InvoiceReceiptDialog({
       iframe.style.height = `${contentHeight}px`
       await new Promise<void>((r) => setTimeout(r, 100))
 
+      // scale:1.5 + JPEG compression keeps PDF well under 1MB (avoids 413 on upload)
       const canvas = await html2canvas(iframeDoc.body, {
-        scale: 2, useCORS: true, backgroundColor: "#ffffff",
+        scale: 1.5, useCORS: true, backgroundColor: "#ffffff",
         width: 780, height: contentHeight, windowWidth: 780, windowHeight: contentHeight,
       })
       document.body.removeChild(iframe)
 
-      const imgData = canvas.toDataURL("image/png")
+      const imgData = canvas.toDataURL("image/jpeg", 0.75)
       const pdf = new jsPDF("p", "mm", "a4")
       const pdfWidth = pdf.internal.pageSize.getWidth()
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width
       const pageHeight = pdf.internal.pageSize.getHeight()
       if (pdfHeight <= pageHeight) {
-        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight)
+        pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, pdfHeight)
       } else {
         let yOffset = 0
         while (yOffset < pdfHeight) {
           if (yOffset > 0) pdf.addPage()
-          pdf.addImage(imgData, "PNG", 0, -yOffset, pdfWidth, pdfHeight)
+          pdf.addImage(imgData, "JPEG", 0, -yOffset, pdfWidth, pdfHeight)
           yOffset += pageHeight
         }
       }
