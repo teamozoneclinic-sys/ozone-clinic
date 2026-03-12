@@ -72,3 +72,34 @@ export async function sendWhatsAppWithImage(
 
 // Backwards-compat alias used in existing routes
 export const sendWhatsAppWithPDF = sendWhatsAppWithImage
+
+// Send a WhatsApp file (PDF, image, etc.) via a public URL.
+// Uses WAWP /sendFile endpoint with file[url] query parameter.
+export async function sendWhatsAppWithFileUrl(
+  phone: string,
+  fileUrl: string,
+  filename: string,
+  mimetype: string,
+  caption: string
+): Promise<boolean> {
+  try {
+    const endpoint = new URL("https://wawp.net/wp-json/awp/v1/sendFile")
+    endpoint.searchParams.set("instance_id", process.env.WAWP_INSTANCE_ID!)
+    endpoint.searchParams.set("access_token", process.env.WAWP_ACCESS_TOKEN!)
+    endpoint.searchParams.set("chatId", formatChatId(phone))
+    endpoint.searchParams.set("file[url]", fileUrl)
+    endpoint.searchParams.set("file[filename]", filename)
+    endpoint.searchParams.set("file[mimetype]", mimetype)
+    if (caption) endpoint.searchParams.set("caption", caption)
+
+    const res = await fetch(endpoint.toString(), { method: "POST" })
+    if (!res.ok) {
+      const body = await res.text().catch(() => "")
+      console.error(`[WhatsApp] File send failed (${res.status}):`, body)
+    }
+    return res.ok
+  } catch (err) {
+    console.error("[WhatsApp] File send exception:", err)
+    return false
+  }
+}
