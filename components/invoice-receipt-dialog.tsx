@@ -363,40 +363,10 @@ export function InvoiceReceiptDialog({
     }
     setSendingWA(true)
     try {
-      // Generate receipt as JPEG image (~100-200 KB — safe for WhatsApp)
-      const html2canvas = (await import("html2canvas")).default
-      const receiptHTML = buildReceiptHTML(invoice, patient, doctor, latestPayment, clinicSettings, appointment)
-
-      const iframe = document.createElement("iframe")
-      iframe.style.cssText =
-        "position:fixed;top:-99999px;left:-99999px;width:780px;border:none;visibility:hidden;"
-      document.body.appendChild(iframe)
-      const iframeDoc = iframe.contentDocument!
-      iframeDoc.open()
-      iframeDoc.write(
-        `<!DOCTYPE html><html><head><meta charset="utf-8"/>` +
-        `<style>${RECEIPT_STYLES}</style></head>` +
-        `<body><div class="page">${receiptHTML}</div></body></html>`
-      )
-      iframeDoc.close()
-      await new Promise<void>((r) => setTimeout(r, 200))
-      const h = iframeDoc.documentElement.scrollHeight
-      iframe.style.height = `${h}px`
-      await new Promise<void>((r) => setTimeout(r, 100))
-
-      const canvas = await html2canvas(iframeDoc.body, {
-        scale: 2, useCORS: true, backgroundColor: "#ffffff",
-        width: 780, height: h, windowWidth: 780, windowHeight: h,
-      })
-      document.body.removeChild(iframe)
-
-      // JPEG at 85% quality — typically 100-200 KB, well within limits
-      const imageBase64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1]
-
-      const res = await fetch("/api/whatsapp/send-receipt-pdf", {
+      const res = await fetch("/api/whatsapp/send-receipt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invoiceId: invoice.id, pdfBase64: imageBase64 }),
+        body: JSON.stringify({ invoiceId: invoice.id }),
       })
       if (res.ok) {
         alert("Receipt sent via WhatsApp successfully!")
@@ -406,7 +376,7 @@ export function InvoiceReceiptDialog({
       }
     } catch (err) {
       console.error("WhatsApp send error:", err)
-      alert("Failed to generate or send receipt.")
+      alert("Failed to send receipt.")
     } finally {
       setSendingWA(false)
     }
