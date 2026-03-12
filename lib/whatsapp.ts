@@ -75,31 +75,43 @@ export const sendWhatsAppWithPDF = sendWhatsAppWithImage
 
 // Send a WhatsApp file (PDF, image, etc.) via a public URL.
 // Uses WAWP /sendFile endpoint with file[url] query parameter.
+// IMPORTANT: file[] params must use raw brackets — URLSearchParams encodes them
+// as %5B%5D which PHP does NOT parse as array notation, breaking the API call.
 export async function sendWhatsAppWithFileUrl(
   phone: string,
   fileUrl: string,
   filename: string,
   mimetype: string,
-  caption: string
+  caption?: string
 ): Promise<boolean> {
   try {
-    const endpoint = new URL("https://wawp.net/wp-json/awp/v1/sendFile")
-    endpoint.searchParams.set("instance_id", process.env.WAWP_INSTANCE_ID!)
-    endpoint.searchParams.set("access_token", process.env.WAWP_ACCESS_TOKEN!)
-    endpoint.searchParams.set("chatId", formatChatId(phone))
-    endpoint.searchParams.set("file[url]", fileUrl)
-    endpoint.searchParams.set("file[filename]", filename)
-    endpoint.searchParams.set("file[mimetype]", mimetype)
-    if (caption) endpoint.searchParams.set("caption", caption)
+    // Build standard params via URLSearchParams (safe to encode)
+    const base = new URLSearchParams({
+      instance_id: process.env.WAWP_INSTANCE_ID!,
+      access_token: process.env.WAWP_ACCESS_TOKEN!,
+      chatId: formatChatId(phone),
+    })
+    if (caption) base.set("caption", caption)
 
-    const res = await fetch(endpoint.toString(), { method: "POST" })
+    // file[] must stay as raw bracket notation — append manually
+    const qs =
+      base.toString() +
+      `&file[url]=${encodeURIComponent(fileUrl)}` +
+      `&file[filename]=${encodeURIComponent(filename)}` +
+      `&file[mimetype]=${encodeURIComponent(mimetype)}`
+
+    const res = await fetch(
+      `https://wawp.net/wp-json/awp/v1/sendFile?${qs}`,
+      { method: "POST" }
+    )
     if (!res.ok) {
       const body = await res.text().catch(() => "")
       console.error(`[WhatsApp] File send failed (${res.status}):`, body)
+      throw new Error(`WAWP ${res.status}: ${body}`)
     }
-    return res.ok
+    return true
   } catch (err) {
     console.error("[WhatsApp] File send exception:", err)
-    return false
+    throw err  // let caller surface the actual error
   }
 }

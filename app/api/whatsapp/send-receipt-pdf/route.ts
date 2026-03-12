@@ -3,12 +3,9 @@ import { put, del } from "@vercel/blob"
 import { connectDB } from "@/lib/mongodb"
 import Invoice from "@/lib/models/Invoice"
 import Patient from "@/lib/models/Patient"
-import Doctor from "@/lib/models/Doctor"
-import Appointment from "@/lib/models/Appointment"
 import ClinicSettings from "@/lib/models/ClinicSettings"
 import { getRequestUser } from "@/lib/auth"
 import { sendWhatsAppWithFileUrl } from "@/lib/whatsapp"
-import { buildReceiptMessage } from "@/lib/receipt-message"
 
 export const dynamic = "force-dynamic"
 
@@ -39,44 +36,11 @@ export async function POST(request: NextRequest) {
 
     if (!invoice) return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
 
-    const [patient, doctor, appointment] = await Promise.all([
-      Patient.findById(invoice.patientId),
-      invoice.doctorId ? Doctor.findById(invoice.doctorId) : Promise.resolve(null),
-      invoice.appointmentId ? Appointment.findOne({ _id: invoice.appointmentId }) : Promise.resolve(null),
-    ])
+    const patient = await Patient.findById(invoice.patientId)
 
     if (!patient?.phone) return NextResponse.json({ error: "Patient has no phone number" }, { status: 400 })
 
-    const lastPayment = invoice.payments.length > 0
-      ? invoice.payments[invoice.payments.length - 1]
-      : null
-
     const invoiceRef = invoice._id.toString().slice(-8).toUpperCase()
-    const caption = buildReceiptMessage({
-      clinicName: clinic?.name ?? "the Clinic",
-      clinicPhone: clinic?.phone,
-      clinicAddress: clinic?.address,
-      patientName: patient.name,
-      invoiceRef,
-      invoiceDate: new Date(invoice.createdAt).toLocaleDateString("en-PK", { dateStyle: "medium" }),
-      paymentDate: lastPayment
-        ? new Date(lastPayment.collectedAt).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" })
-        : new Date().toLocaleDateString("en-PK", { dateStyle: "medium" }),
-      doctorName: doctor?.name ?? "—",
-      doctorSpecialty: doctor?.specialty,
-      appointmentDate: appointment?.date,
-      appointmentTime: appointment?.time,
-      services: invoice.lineItems.map((item) => ({
-        description: item.description,
-        quantity: item.quantity,
-        amount: item.amount,
-      })),
-      totalAmount: invoice.totalAmount,
-      paidAmount: invoice.paidAmount,
-      balance: invoice.balance,
-      paymentMethod: lastPayment?.method ?? "—",
-      reference: lastPayment?.reference,
-    })
 
     // Upload PDF to Vercel Blob to get a public URL for WAWP /sendFile
     const filename = `receipt-${invoiceRef}.pdf`
@@ -88,19 +52,14 @@ export async function POST(request: NextRequest) {
 
     console.log(`[WA PDF] Uploaded to blob: ${blobUrl}`)
 
-    // Send via WAWP /sendFile with the public URL
-    const sent = await sendWhatsAppWithFileUrl(
-      patient.phone,
-      blobUrl,
-      filename,
-      "application/pdf",
-      caption
-    )
-
-    // Delete the blob regardless of send result (fire and forget)
-    del(blobUrl).catch((err) => console.error("[WA PDF] Blob delete failed:", err))
-
-    if (!sent) return NextResponse.json({ error: "Failed to send WhatsApp message" }, { status: 500 })
+    // Send via WAWP /sendFile — short caption only (full receipt is in the PDF)
+    const shortCaption = `Payment receipt from ${clinic?.name ?? "the Clinic"}. Invoice #${invoiceRef}.`
+    try {
+      await sendWhatsAppWithFileUrl(patient.phone, blobUrl, filename, "application/pdf", shortCaption)
+    } finally {
+      // Always delete blob whether send succeeded or failed
+      del(blobUrl).catch((err) => console.error("[WA PDF] Blob delete failed:", err))
+    }
 
     return NextResponse.json({ success: true })
   } catch (err) {
