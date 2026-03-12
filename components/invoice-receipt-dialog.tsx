@@ -283,6 +283,7 @@ export function InvoiceReceiptDialog({
 }: InvoiceReceiptDialogProps) {
   const balanceZero = invoice.balance <= 0
   const [downloading, setDownloading] = useState(false)
+  const [sendingWA, setSendingWA] = useState(false)
 
   const handlePrint = () => {
     const html = buildReceiptHTML(invoice, patient, doctor, latestPayment, clinicSettings, appointment)
@@ -355,10 +356,74 @@ export function InvoiceReceiptDialog({
     }
   }
 
-  const handleWhatsApp = () => {
-    if (!patient?.phone) return
-    const text = buildWhatsAppText(invoice, patient, doctor, latestPayment, clinicSettings, appointment)
-    window.open(`https://wa.me/?text=${text}`, "_blank")
+  const handleWhatsApp = async () => {
+    if (!patient?.phone) {
+      alert("This patient has no phone number on file.")
+      return
+    }
+    setSendingWA(true)
+    try {
+      // Generate PDF as base64
+      const html2canvas = (await import("html2canvas")).default
+      const { jsPDF } = await import("jspdf")
+      const receiptHTML = buildReceiptHTML(invoice, patient, doctor, latestPayment, clinicSettings, appointment)
+
+      const iframe = document.createElement("iframe")
+      iframe.style.cssText =
+        "position:fixed;top:-99999px;left:-99999px;width:780px;border:none;visibility:hidden;"
+      document.body.appendChild(iframe)
+      const iframeDoc = iframe.contentDocument!
+      iframeDoc.open()
+      iframeDoc.write(
+        `<!DOCTYPE html><html><head><meta charset="utf-8"/>` +
+        `<style>${RECEIPT_STYLES}</style></head>` +
+        `<body><div class="page">${receiptHTML}</div></body></html>`
+      )
+      iframeDoc.close()
+      await new Promise<void>((r) => setTimeout(r, 200))
+      const h = iframeDoc.documentElement.scrollHeight
+      iframe.style.height = `${h}px`
+      await new Promise<void>((r) => setTimeout(r, 100))
+
+      const canvas = await html2canvas(iframeDoc.body, {
+        scale: 2, useCORS: true, backgroundColor: "#ffffff",
+        width: 780, height: h, windowWidth: 780, windowHeight: h,
+      })
+      document.body.removeChild(iframe)
+
+      const pdf = new jsPDF("p", "mm", "a4")
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      if (pdfHeight <= pageHeight) {
+        pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, pdfWidth, pdfHeight)
+      } else {
+        let y = 0
+        while (y < pdfHeight) {
+          if (y > 0) pdf.addPage()
+          pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, -y, pdfWidth, pdfHeight)
+          y += pageHeight
+        }
+      }
+      // Get base64 without the data:application/pdf;base64, prefix
+      const pdfBase64 = pdf.output("datauristring").split(",")[1]
+
+      const res = await fetch("/api/whatsapp/send-receipt-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoiceId: invoice.id, pdfBase64 }),
+      })
+      if (res.ok) {
+        alert("Receipt with PDF sent via WhatsApp successfully!")
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(err.error ?? "Failed to send WhatsApp message.")
+      }
+    } catch {
+      alert("Failed to generate or send receipt.")
+    } finally {
+      setSendingWA(false)
+    }
   }
 
   const payDate = new Date(latestPayment.collectedAt).toLocaleString("en-PK", {
@@ -410,9 +475,10 @@ export function InvoiceReceiptDialog({
               variant="outline"
               className="gap-1.5 text-[#25D366] border-[#25D366]/40 hover:bg-[#25D366]/5"
               onClick={handleWhatsApp}
+              disabled={sendingWA}
             >
               <MessageCircle className="h-4 w-4" />
-              WhatsApp
+              {sendingWA ? "Sending…" : "WhatsApp"}
             </Button>
             <Button size="sm" variant="outline" className="gap-1.5" onClick={handlePrint}>
               <Printer className="h-4 w-4" />

@@ -10,6 +10,7 @@ export function formatChatId(phone: string): string {
   return `${withCountry}@c.us`
 }
 
+// Send a plain text WhatsApp message
 export async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
   try {
     const url = new URL(process.env.WAWP_API_URL!)
@@ -19,6 +20,30 @@ export async function sendWhatsApp(phone: string, message: string): Promise<bool
     url.searchParams.set("message", message)
 
     const res = await fetch(url.toString(), { method: "POST" })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+// Send a WhatsApp message with a PDF file attachment (base64 encoded)
+export async function sendWhatsAppWithPDF(
+  phone: string,
+  caption: string,
+  pdfBase64: string,
+  filename: string
+): Promise<boolean> {
+  try {
+    const formData = new FormData()
+    formData.append("instance_id", process.env.WAWP_INSTANCE_ID!)
+    formData.append("access_token", process.env.WAWP_ACCESS_TOKEN!)
+    formData.append("chatId", formatChatId(phone))
+    formData.append("text", caption)
+    formData.append("file[data]", pdfBase64)
+    formData.append("file[filename]", filename)
+    formData.append("file[mimetype]", "application/pdf")
+
+    const res = await fetch(process.env.WAWP_API_URL!, { method: "POST", body: formData })
     return res.ok
   } catch {
     return false

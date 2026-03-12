@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import Patient from "@/lib/models/Patient"
 import Appointment from "@/lib/models/Appointment"
+import ClinicSettings from "@/lib/models/ClinicSettings"
 import { getRequestUser } from "@/lib/auth"
 import { sendWhatsApp } from "@/lib/whatsapp"
 
@@ -35,15 +36,37 @@ export async function POST(request: NextRequest) {
 
   // Send WhatsApp welcome message (non-blocking)
   if (patient.phone) {
-    const clinicName = process.env.CLINIC_NAME ?? "the Clinic"
+    const clinic = await ClinicSettings.findOne({})
+    const clinicName = clinic?.name ?? "the Clinic"
+    const regDate = new Date().toLocaleDateString("en-PK", { dateStyle: "long" })
+    const divider = "━━━━━━━━━━━━━━━━━━━━━"
+
+    const details = [
+      `• 👤 *Name:* ${patient.name}`,
+      `• 📞 *Phone:* ${patient.phone}`,
+      patient.dateOfBirth ? `• 🎂 *Date of Birth:* ${patient.dateOfBirth}` : "",
+      patient.bloodGroup   ? `• 🩸 *Blood Group:* ${patient.bloodGroup}` : "",
+      patient.address      ? `• 📍 *Address:* ${patient.address}` : "",
+      `• 📅 *Registered On:* ${regDate}`,
+    ].filter(Boolean).join("\n")
+
+    const contact = [
+      clinic?.phone   ? `📞 ${clinic.phone}` : "",
+      clinic?.address ? `📍 ${clinic.address}` : "",
+      clinic?.email   ? `✉️ ${clinic.email}` : "",
+    ].filter(Boolean).join("\n")
+
     const msg =
-      `Welcome to ${clinicName}! 🏥\n\n` +
-      `Dear ${patient.name}, you have been successfully registered in our system.\n\n` +
-      `📋 Your Details:\n` +
-      `• Name: ${patient.name}\n` +
-      `• Phone: ${patient.phone}\n\n` +
-      `If you have any questions, please don't hesitate to contact us.\n` +
-      `We look forward to serving you!`
+      `🌟 *Welcome to ${clinicName}!* 🏥\n\n` +
+      `Dear *${patient.name}*, you have been successfully registered in our system.\n\n` +
+      `${divider}\n` +
+      `📋 *Your Registration Details:*\n` +
+      `${details}\n` +
+      `${divider}\n\n` +
+      `You are now part of the *${clinicName}* family! We are committed to providing you with the best healthcare experience.\n\n` +
+      (contact ? `*Contact Us:*\n${contact}\n\n` : "") +
+      `_Stay healthy and take care!_ 💚`
+
     sendWhatsApp(patient.phone, msg).catch(() => {})
   }
 
