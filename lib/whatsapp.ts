@@ -32,8 +32,8 @@ export async function sendWhatsApp(phone: string, message: string): Promise<bool
 }
 
 // Send a WhatsApp message with a JPEG image attachment (base64 encoded).
-// Uses application/x-www-form-urlencoded so the WordPress REST API on WAWP
-// correctly parses bracket-notation keys: file[data], file[filename], etc.
+// Uses JSON body with nested file object as documented at docs.wawp.net/send-messages
+// Endpoint: /wp-json/awp/v1/sendMessage
 export async function sendWhatsAppWithImage(
   phone: string,
   caption: string,
@@ -41,24 +41,27 @@ export async function sendWhatsAppWithImage(
   filename = "receipt.jpg"
 ): Promise<boolean> {
   try {
-    const params = new URLSearchParams()
-    params.set("instance_id", process.env.WAWP_INSTANCE_ID!)
-    params.set("access_token", process.env.WAWP_ACCESS_TOKEN!)
-    params.set("chatId", formatChatId(phone))
-    params.set("text", caption)
-    params.set("file[data]", imageBase64)
-    params.set("file[filename]", filename)
-    params.set("file[mimetype]", "image/jpeg")
+    const body = {
+      instance_id: process.env.WAWP_INSTANCE_ID!,
+      access_token: process.env.WAWP_ACCESS_TOKEN!,
+      chatId: formatChatId(phone),
+      text: caption,
+      file: {
+        data: imageBase64,
+        filename,
+        mimetype: "image/jpeg",
+      },
+    }
 
-    const res = await fetch(process.env.WAWP_API_URL!, {
+    const res = await fetch(process.env.WAWP_IMAGE_URL!, {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: params.toString(),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     })
 
     if (!res.ok) {
-      const body = await res.text().catch(() => "")
-      console.error(`[WhatsApp] Image send failed (${res.status}):`, body)
+      const resBody = await res.text().catch(() => "")
+      console.error(`[WhatsApp] Image send failed (${res.status}):`, resBody)
     }
     return res.ok
   } catch (err) {
