@@ -363,9 +363,8 @@ export function InvoiceReceiptDialog({
     }
     setSendingWA(true)
     try {
-      // Generate PDF as base64
+      // Generate receipt as JPEG image (~100-200 KB — safe for WhatsApp)
       const html2canvas = (await import("html2canvas")).default
-      const { jsPDF } = await import("jspdf")
       const receiptHTML = buildReceiptHTML(invoice, patient, doctor, latestPayment, clinicSettings, appointment)
 
       const iframe = document.createElement("iframe")
@@ -391,35 +390,22 @@ export function InvoiceReceiptDialog({
       })
       document.body.removeChild(iframe)
 
-      const pdf = new jsPDF("p", "mm", "a4")
-      const pdfWidth = pdf.internal.pageSize.getWidth()
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
-      const pageHeight = pdf.internal.pageSize.getHeight()
-      if (pdfHeight <= pageHeight) {
-        pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, pdfWidth, pdfHeight)
-      } else {
-        let y = 0
-        while (y < pdfHeight) {
-          if (y > 0) pdf.addPage()
-          pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, -y, pdfWidth, pdfHeight)
-          y += pageHeight
-        }
-      }
-      // Get base64 without the data:application/pdf;base64, prefix
-      const pdfBase64 = pdf.output("datauristring").split(",")[1]
+      // JPEG at 85% quality — typically 100-200 KB, well within limits
+      const imageBase64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1]
 
       const res = await fetch("/api/whatsapp/send-receipt-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invoiceId: invoice.id, pdfBase64 }),
+        body: JSON.stringify({ invoiceId: invoice.id, pdfBase64: imageBase64 }),
       })
       if (res.ok) {
-        alert("Receipt with PDF sent via WhatsApp successfully!")
+        alert("Receipt sent via WhatsApp successfully!")
       } else {
         const err = await res.json().catch(() => ({}))
         alert(err.error ?? "Failed to send WhatsApp message.")
       }
-    } catch {
+    } catch (err) {
+      console.error("WhatsApp send error:", err)
       alert("Failed to generate or send receipt.")
     } finally {
       setSendingWA(false)

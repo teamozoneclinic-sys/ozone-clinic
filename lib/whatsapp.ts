@@ -26,12 +26,13 @@ export async function sendWhatsApp(phone: string, message: string): Promise<bool
   }
 }
 
-// Send a WhatsApp message with a PDF file attachment (base64 encoded)
+// Send a WhatsApp message with a file attachment (base64 encoded)
 export async function sendWhatsAppWithPDF(
   phone: string,
   caption: string,
-  pdfBase64: string,
-  filename: string
+  fileBase64: string,
+  filename: string,
+  mimetype = "image/jpeg"
 ): Promise<boolean> {
   try {
     const formData = new FormData()
@@ -39,9 +40,9 @@ export async function sendWhatsAppWithPDF(
     formData.append("access_token", process.env.WAWP_ACCESS_TOKEN!)
     formData.append("chatId", formatChatId(phone))
     formData.append("text", caption)
-    formData.append("file[data]", pdfBase64)
+    formData.append("file[data]", fileBase64)
     formData.append("file[filename]", filename)
-    formData.append("file[mimetype]", "application/pdf")
+    formData.append("file[mimetype]", mimetype)
 
     const res = await fetch(process.env.WAWP_API_URL!, { method: "POST", body: formData })
     return res.ok

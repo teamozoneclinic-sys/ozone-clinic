@@ -66,11 +66,13 @@ export async function POST(request: NextRequest) {
     reference: lastPayment?.reference,
   })
 
+  // Send as JPEG image (receipt screenshot) — small enough for WhatsApp
   const sent = await sendWhatsAppWithPDF(
     patient.phone,
     caption,
     pdfBase64,
-    `receipt-${invoiceRef}.pdf`
+    `receipt-${invoiceRef}.jpg`,
+    "image/jpeg"
   )
 
   if (!sent) return NextResponse.json({ error: "Failed to send WhatsApp message" }, { status: 500 })

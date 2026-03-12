@@ -74,8 +74,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       paymentMethod: newPayment.method,
       reference: newPayment.reference,
     })
-    sendWhatsApp(patient.phone, message).catch(() => {})
-  }).catch(() => {})
+    sendWhatsApp(patient.phone, message).catch((err) => {
+      console.error("[WhatsApp] Failed to send receipt:", err)
+    })
+  }).catch((err) => {
+    console.error("[WhatsApp] Failed to fetch data for receipt:", err)
+  })
 
   return NextResponse.json({ data: invoice.toJSON() })
 }
