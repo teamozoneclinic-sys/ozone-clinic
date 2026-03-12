@@ -78,12 +78,12 @@ export async function POST(request: NextRequest) {
       reference: lastPayment?.reference,
     })
 
-    // Upload receipt image to Vercel Blob to get a public URL for WAWP
-    const filename = `receipt-${invoiceRef}.jpg`
+    // Upload PDF to Vercel Blob to get a public URL for WAWP /sendFile
+    const filename = `receipt-${invoiceRef}.pdf`
     const buffer = Buffer.from(pdfBase64, "base64")
     const { url: blobUrl } = await put(`receipts/${filename}`, buffer, {
       access: "public",
-      contentType: "image/jpeg",
+      contentType: "application/pdf",
     })
 
     console.log(`[WA PDF] Uploaded to blob: ${blobUrl}`)
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
       patient.phone,
       blobUrl,
       filename,
-      "image/jpeg",
+      "application/pdf",
       caption
     )
 

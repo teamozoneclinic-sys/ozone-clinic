@@ -363,8 +363,9 @@ export function InvoiceReceiptDialog({
     }
     setSendingWA(true)
     try {
-      // Render receipt to JPEG, upload to Vercel Blob for public URL, then send via WAWP /sendFile
+      // Generate PDF (same as Download PDF), upload to Vercel Blob, send via WAWP /sendFile
       const html2canvas = (await import("html2canvas")).default
+      const { jsPDF } = await import("jspdf")
       const receiptHTML = buildReceiptHTML(invoice, patient, doctor, latestPayment, clinicSettings, appointment)
 
       const iframe = document.createElement("iframe")
@@ -380,25 +381,40 @@ export function InvoiceReceiptDialog({
       )
       iframeDoc.close()
       await new Promise<void>((r) => setTimeout(r, 200))
-      const h = iframeDoc.documentElement.scrollHeight
-      iframe.style.height = `${h}px`
+      const contentHeight = iframeDoc.documentElement.scrollHeight
+      iframe.style.height = `${contentHeight}px`
       await new Promise<void>((r) => setTimeout(r, 100))
 
       const canvas = await html2canvas(iframeDoc.body, {
         scale: 2, useCORS: true, backgroundColor: "#ffffff",
-        width: 780, height: h, windowWidth: 780, windowHeight: h,
+        width: 780, height: contentHeight, windowWidth: 780, windowHeight: contentHeight,
       })
       document.body.removeChild(iframe)
 
-      const imageBase64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1]
+      const imgData = canvas.toDataURL("image/png")
+      const pdf = new jsPDF("p", "mm", "a4")
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width
+      const pageHeight = pdf.internal.pageSize.getHeight()
+      if (pdfHeight <= pageHeight) {
+        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight)
+      } else {
+        let yOffset = 0
+        while (yOffset < pdfHeight) {
+          if (yOffset > 0) pdf.addPage()
+          pdf.addImage(imgData, "PNG", 0, -yOffset, pdfWidth, pdfHeight)
+          yOffset += pageHeight
+        }
+      }
+      const pdfBase64 = pdf.output("datauristring").split(",")[1]
 
       const res = await fetch("/api/whatsapp/send-receipt-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ invoiceId: invoice.id, pdfBase64: imageBase64 }),
+        body: JSON.stringify({ invoiceId: invoice.id, pdfBase64 }),
       })
       if (res.ok) {
-        alert("Receipt image sent via WhatsApp successfully!")
+        alert("Receipt PDF sent via WhatsApp successfully!")
       } else {
         const err = await res.json().catch(() => ({}))
         alert(err.error ?? "Failed to send WhatsApp message.")
