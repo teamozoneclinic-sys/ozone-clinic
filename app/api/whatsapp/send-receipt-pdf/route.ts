@@ -9,13 +9,36 @@ import { getRequestUser } from "@/lib/auth"
 import { sendWhatsAppWithImage } from "@/lib/whatsapp"
 import { buildReceiptMessage } from "@/lib/receipt-message"
 
+export const dynamic = "force-dynamic"
+
 export async function POST(request: NextRequest) {
+  try {
   const user = await getRequestUser(request)
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { invoiceId, pdfBase64 } = await request.json()
+  let invoiceId: string, pdfBase64: string
+  try {
+    const body = await request.json()
+    invoiceId = body.invoiceId
+    pdfBase64 = body.pdfBase64
+  } catch (parseErr) {
+    console.error("[WA PDF] Body parse error:", parseErr)
+    return NextResponse.json({ error: "Failed to parse request body", detail: String(parseErr) }, { status: 400 })
+  }
+
   if (!invoiceId || !pdfBase64) {
     return NextResponse.json({ error: "invoiceId and pdfBase64 required" }, { status: 400 })
+  }
+
+  console.log(`[WA PDF] invoiceId=${invoiceId}, base64Length=${pdfBase64.length}`)
+
+  if (!process.env.WAWP_IMAGE_URL || !process.env.WAWP_INSTANCE_ID || !process.env.WAWP_ACCESS_TOKEN) {
+    console.error("[WA PDF] Missing env vars:", {
+      WAWP_IMAGE_URL: process.env.WAWP_IMAGE_URL ?? "MISSING",
+      WAWP_INSTANCE_ID: process.env.WAWP_INSTANCE_ID ? "set" : "MISSING",
+      WAWP_ACCESS_TOKEN: process.env.WAWP_ACCESS_TOKEN ? "set" : "MISSING",
+    })
+    return NextResponse.json({ error: "WhatsApp not configured (missing env vars)" }, { status: 500 })
   }
 
   await connectDB()
@@ -77,4 +100,8 @@ export async function POST(request: NextRequest) {
   if (!sent) return NextResponse.json({ error: "Failed to send WhatsApp message" }, { status: 500 })
 
   return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error("[WA PDF] Unhandled error:", err)
+    return NextResponse.json({ error: "Internal server error", detail: String(err) }, { status: 500 })
+  }
 }
