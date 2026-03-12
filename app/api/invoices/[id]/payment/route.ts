@@ -7,7 +7,7 @@ import Appointment from "@/lib/models/Appointment"
 import ClinicSettings from "@/lib/models/ClinicSettings"
 import { getRequestUser } from "@/lib/auth"
 import { sendWhatsApp } from "@/lib/whatsapp"
-import { buildReceiptMessage } from "@/app/api/whatsapp/send-receipt/route"
+import { buildReceiptMessage } from "@/lib/receipt-message"
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRequestUser(request)

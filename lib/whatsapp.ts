@@ -20,33 +20,52 @@ export async function sendWhatsApp(phone: string, message: string): Promise<bool
     url.searchParams.set("message", message)
 
     const res = await fetch(url.toString(), { method: "POST" })
+    if (!res.ok) {
+      const body = await res.text().catch(() => "")
+      console.error(`[WhatsApp] Text send failed (${res.status}):`, body)
+    }
     return res.ok
-  } catch {
+  } catch (err) {
+    console.error("[WhatsApp] Text send exception:", err)
     return false
   }
 }
 
-// Send a WhatsApp message with a file attachment (base64 encoded)
-export async function sendWhatsAppWithPDF(
+// Send a WhatsApp message with a JPEG image attachment (base64 encoded).
+// Uses application/x-www-form-urlencoded so the WordPress REST API on WAWP
+// correctly parses bracket-notation keys: file[data], file[filename], etc.
+export async function sendWhatsAppWithImage(
   phone: string,
   caption: string,
-  fileBase64: string,
-  filename: string,
-  mimetype = "image/jpeg"
+  imageBase64: string,
+  filename = "receipt.jpg"
 ): Promise<boolean> {
   try {
-    const formData = new FormData()
-    formData.append("instance_id", process.env.WAWP_INSTANCE_ID!)
-    formData.append("access_token", process.env.WAWP_ACCESS_TOKEN!)
-    formData.append("chatId", formatChatId(phone))
-    formData.append("text", caption)
-    formData.append("file[data]", fileBase64)
-    formData.append("file[filename]", filename)
-    formData.append("file[mimetype]", mimetype)
+    const params = new URLSearchParams()
+    params.set("instance_id", process.env.WAWP_INSTANCE_ID!)
+    params.set("access_token", process.env.WAWP_ACCESS_TOKEN!)
+    params.set("chatId", formatChatId(phone))
+    params.set("text", caption)
+    params.set("file[data]", imageBase64)
+    params.set("file[filename]", filename)
+    params.set("file[mimetype]", "image/jpeg")
 
-    const res = await fetch(process.env.WAWP_API_URL!, { method: "POST", body: formData })
+    const res = await fetch(process.env.WAWP_API_URL!, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    })
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "")
+      console.error(`[WhatsApp] Image send failed (${res.status}):`, body)
+    }
     return res.ok
-  } catch {
+  } catch (err) {
+    console.error("[WhatsApp] Image send exception:", err)
     return false
   }
 }
+
+// Backwards-compat alias used in existing routes
+export const sendWhatsAppWithPDF = sendWhatsAppWithImage

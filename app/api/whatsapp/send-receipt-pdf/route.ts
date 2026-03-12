@@ -6,8 +6,8 @@ import Doctor from "@/lib/models/Doctor"
 import Appointment from "@/lib/models/Appointment"
 import ClinicSettings from "@/lib/models/ClinicSettings"
 import { getRequestUser } from "@/lib/auth"
-import { sendWhatsAppWithPDF } from "@/lib/whatsapp"
-import { buildReceiptMessage } from "../send-receipt/route"
+import { sendWhatsAppWithImage } from "@/lib/whatsapp"
+import { buildReceiptMessage } from "@/lib/receipt-message"
 
 export async function POST(request: NextRequest) {
   const user = await getRequestUser(request)
@@ -67,12 +67,11 @@ export async function POST(request: NextRequest) {
   })
 
   // Send as JPEG image (receipt screenshot) — small enough for WhatsApp
-  const sent = await sendWhatsAppWithPDF(
+  const sent = await sendWhatsAppWithImage(
     patient.phone,
     caption,
     pdfBase64,
-    `receipt-${invoiceRef}.jpg`,
-    "image/jpeg"
+    `receipt-${invoiceRef}.jpg`
   )
 
   if (!sent) return NextResponse.json({ error: "Failed to send WhatsApp message" }, { status: 500 })
