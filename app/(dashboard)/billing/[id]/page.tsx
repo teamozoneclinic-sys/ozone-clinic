@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { User, Stethoscope, CalendarDays, CreditCard, Trash2, Download, Receipt } from "lucide-react"
+import { User, Stethoscope, CalendarDays, CreditCard, Trash2, Download, Receipt, MessageCircle } from "lucide-react"
 import { PAYMENT_METHODS } from "@/lib/constants"
 import { toast } from "sonner"
 import Link from "next/link"
@@ -44,8 +44,30 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const { id } = use(params)
   const { getInvoice, getPatient, getDoctor, getAppointment, hasPermission, currentUser, clinicSettings } = useStore()
   const [showPaymentModal, setShowPaymentModal] = useState(false)
-  // receiptPayment: any past payment row OR freshly collected one
   const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null)
+  const [sendingWA, setSendingWA] = useState(false)
+
+  const handleSendWhatsApp = async () => {
+    if (!invoice) return
+    setSendingWA(true)
+    try {
+      const res = await fetch("/api/whatsapp/send-receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoiceId: invoice.id }),
+      })
+      if (res.ok) {
+        toast.success("Receipt sent via WhatsApp!")
+      } else {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err.error ?? "Failed to send WhatsApp message.")
+      }
+    } catch {
+      toast.error("Failed to send WhatsApp message.")
+    } finally {
+      setSendingWA(false)
+    }
+  }
 
   const invoice = getInvoice(id)
   const appointment = invoice ? getAppointment(invoice.appointmentId) : undefined
@@ -105,6 +127,18 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               >
                 <Receipt className="h-4 w-4" />
                 View Receipt
+              </Button>
+            )}
+            {lastPayment && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-green-600 border-green-600 hover:bg-green-50"
+                onClick={handleSendWhatsApp}
+                disabled={sendingWA}
+              >
+                <MessageCircle className="h-4 w-4" />
+                {sendingWA ? "Sending…" : "Send via WhatsApp"}
               </Button>
             )}
             {canDiscount && invoice.status !== "voided" && invoice.status !== "paid" && (

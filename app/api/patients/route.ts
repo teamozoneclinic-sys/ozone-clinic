@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/mongodb"
 import Patient from "@/lib/models/Patient"
 import Appointment from "@/lib/models/Appointment"
 import { getRequestUser } from "@/lib/auth"
+import { sendWhatsApp } from "@/lib/whatsapp"
 
 export async function GET(request: NextRequest) {
   const user = await getRequestUser(request)
@@ -31,5 +32,20 @@ export async function POST(request: NextRequest) {
   await connectDB()
   const body = await request.json()
   const patient = await Patient.create(body)
+
+  // Send WhatsApp welcome message (non-blocking)
+  if (patient.phone) {
+    const clinicName = process.env.CLINIC_NAME ?? "the Clinic"
+    const msg =
+      `Welcome to ${clinicName}! 🏥\n\n` +
+      `Dear ${patient.name}, you have been successfully registered in our system.\n\n` +
+      `📋 Your Details:\n` +
+      `• Name: ${patient.name}\n` +
+      `• Phone: ${patient.phone}\n\n` +
+      `If you have any questions, please don't hesitate to contact us.\n` +
+      `We look forward to serving you!`
+    sendWhatsApp(patient.phone, msg).catch(() => {})
+  }
+
   return NextResponse.json({ data: patient.toJSON() }, { status: 201 })
 }

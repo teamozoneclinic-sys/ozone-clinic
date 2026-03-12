@@ -1,67 +1,26 @@
 /**
- * WhatsApp Cloud API (Meta) helper
- * Requires env vars: WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_ACCESS_TOKEN
+ * WAWP WhatsApp API helper (wawp.net)
+ * Requires env vars: WAWP_API_URL, WAWP_INSTANCE_ID, WAWP_ACCESS_TOKEN
  */
 
-const GRAPH_BASE = "https://graph.facebook.com/v21.0"
-
-/**
- * Normalise a Pakistani phone number to the WhatsApp format (no +, country code prefix).
- * Handles: "0300-1234567", "+923001234567", "923001234567", "03001234567"
- */
-export function cleanPhone(raw: string): string {
-  let p = raw.replace(/[\s\-().]/g, "")
-  if (p.startsWith("+")) p = p.slice(1)
-  if (p.startsWith("0")) p = "92" + p.slice(1)
-  return p
+// Format phone to WAWP chatId (e.g. 03001234567 -> 923001234567@c.us)
+export function formatChatId(phone: string): string {
+  const digits = phone.replace(/\D/g, "")
+  const withCountry = digits.startsWith("0") ? "92" + digits.slice(1) : digits
+  return `${withCountry}@c.us`
 }
 
-/**
- * Send a WhatsApp template message via Meta Cloud API.
- * `params` maps 1-to-1 to the {{1}}, {{2}}, ... placeholders in the template body.
- * Throws if the API returns a non-2xx status — callers should .catch() to keep it non-blocking.
- */
-export async function sendWhatsAppTemplate(
-  to: string,
-  templateName: string,
-  params: string[]
-): Promise<void> {
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN
+export async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
+  try {
+    const url = new URL(process.env.WAWP_API_URL!)
+    url.searchParams.set("instance_id", process.env.WAWP_INSTANCE_ID!)
+    url.searchParams.set("access_token", process.env.WAWP_ACCESS_TOKEN!)
+    url.searchParams.set("chatId", formatChatId(phone))
+    url.searchParams.set("message", message)
 
-  if (!phoneNumberId || !accessToken) {
-    throw new Error("WhatsApp credentials not configured (WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN)")
-  }
-
-  const body = {
-    messaging_product: "whatsapp",
-    to: cleanPhone(to),
-    type: "template",
-    template: {
-      name: templateName,
-      language: { code: "en" },
-      components: [
-        {
-          type: "body",
-          parameters: params.map((text) => ({ type: "text", text: String(text) })),
-        },
-      ],
-    },
-  }
-
-  const res = await fetch(`${GRAPH_BASE}/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify(body),
-  })
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(
-      `WhatsApp API error ${res.status}: ${JSON.stringify(err)}`
-    )
+    const res = await fetch(url.toString(), { method: "POST" })
+    return res.ok
+  } catch {
+    return false
   }
 }
