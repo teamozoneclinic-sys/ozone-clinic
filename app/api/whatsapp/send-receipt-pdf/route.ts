@@ -5,7 +5,7 @@ import Patient from "@/lib/models/Patient"
 import ClinicSettings from "@/lib/models/ClinicSettings"
 import TempFile from "@/lib/models/TempFile"
 import { getRequestUser } from "@/lib/auth"
-import { sendWhatsAppWithFileUrl } from "@/lib/whatsapp"
+import { sendWhatsAppTemplateWithDocument } from "@/lib/whatsapp"
 
 export const dynamic = "force-dynamic"
 
@@ -57,8 +57,18 @@ export async function POST(request: NextRequest) {
     console.log(`[WA PDF] Stored temp file: ${tempFile._id}, URL: ${fileUrl}`)
 
     try {
-      const caption = `Payment receipt from ${clinic?.name ?? "the Clinic"}. Invoice #${invoiceRef}.`
-      await sendWhatsAppWithFileUrl(patient.phone, fileUrl, filename, "application/pdf", caption)
+      await sendWhatsAppTemplateWithDocument(
+        patient.phone,
+        "payment_receipt",
+        fileUrl,
+        filename,
+        [
+          patient.name,
+          String(invoice.paidAmount),
+          invoiceRef,
+          clinic?.name ?? "the Clinic",
+        ]
+      )
       console.log(`[WA PDF] ✅ Receipt PDF sent to ${patient.phone} for invoice #${invoiceRef}`)
     } finally {
       // Clean up temp file after sending (TTL also handles this as fallback)

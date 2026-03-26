@@ -34,17 +34,71 @@ async function metaPost(body: object): Promise<void> {
   }
 }
 
-// Send a plain text WhatsApp message
-export async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
+// Send an approved WhatsApp template message with dynamic parameters
+// params: array of strings matching {{1}}, {{2}}, ... in the template body
+export async function sendWhatsAppTemplate(
+  phone: string,
+  templateName: string,
+  params: string[]
+): Promise<boolean> {
   try {
     await metaPost({
       to: formatPhone(phone),
-      type: "text",
-      text: { body: message },
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: "en_US" },
+        components: [
+          {
+            type: "body",
+            parameters: params.map((text) => ({ type: "text", text })),
+          },
+        ],
+      },
     })
     return true
   } catch (err) {
-    console.error("[WhatsApp] Text send failed:", err)
+    console.error(`[WhatsApp] Template "${templateName}" failed:`, err)
+    return false
+  }
+}
+
+// Send an approved template that has a Document header + body params
+// (e.g. payment_receipt template with PDF attached)
+export async function sendWhatsAppTemplateWithDocument(
+  phone: string,
+  templateName: string,
+  documentUrl: string,
+  documentFilename: string,
+  bodyParams: string[]
+): Promise<boolean> {
+  try {
+    await metaPost({
+      to: formatPhone(phone),
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: "en_US" },
+        components: [
+          {
+            type: "header",
+            parameters: [
+              {
+                type: "document",
+                document: { link: documentUrl, filename: documentFilename },
+              },
+            ],
+          },
+          {
+            type: "body",
+            parameters: bodyParams.map((text) => ({ type: "text", text })),
+          },
+        ],
+      },
+    })
+    return true
+  } catch (err) {
+    console.error(`[WhatsApp] Template "${templateName}" with document failed:`, err)
     return false
   }
 }
