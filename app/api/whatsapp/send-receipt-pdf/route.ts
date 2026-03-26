@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
 
     const invoiceRef = invoice._id.toString().slice(-8).toUpperCase()
 
-    // Upload PDF to Vercel Blob to get a public URL for WAWP /sendFile
+    // Upload PDF to Vercel Blob to get a public URL for Meta Cloud API
     const filename = `receipt-${invoiceRef}.pdf`
     const buffer = Buffer.from(pdfBase64, "base64")
     const { url: blobUrl } = await put(`receipts/${filename}`, buffer, {
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[WA PDF] Uploaded to blob: ${blobUrl}`)
 
-    // Send via WAWP /sendFile — short caption only (full receipt is in the PDF)
+    // Send via Meta Cloud API — short caption only (full receipt is in the PDF)
     const shortCaption = `Payment receipt from ${clinic?.name ?? "the Clinic"}. Invoice #${invoiceRef}.`
     try {
       await sendWhatsAppWithFileUrl(patient.phone, blobUrl, filename, "application/pdf", shortCaption)
