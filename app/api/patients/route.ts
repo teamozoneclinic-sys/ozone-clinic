@@ -4,7 +4,7 @@ import Patient from "@/lib/models/Patient"
 import Appointment from "@/lib/models/Appointment"
 import ClinicSettings from "@/lib/models/ClinicSettings"
 import { getRequestUser } from "@/lib/auth"
-import { sendWhatsApp } from "@/lib/whatsapp"
+import { sendWhatsAppTemplate } from "@/lib/whatsapp"
 
 export async function GET(request: NextRequest) {
   const user = await getRequestUser(request)
@@ -34,40 +34,23 @@ export async function POST(request: NextRequest) {
   const body = await request.json()
   const patient = await Patient.create(body)
 
-  // Send WhatsApp welcome message (non-blocking)
+  // Send WhatsApp welcome message using approved template (non-blocking)
   if (patient.phone) {
     const clinic = await ClinicSettings.findOne({})
-    const clinicName = clinic?.name ?? "the Clinic"
+    const patientRef = patient._id.toString().slice(-8).toUpperCase()
     const regDate = new Date().toLocaleDateString("en-PK", { dateStyle: "long" })
-    const divider = "━━━━━━━━━━━━━━━━━━━━━"
+    const contactInfo = clinic?.phone ?? clinic?.email ?? "the hospital"
 
-    const details = [
-      `• 👤 *Name:* ${patient.name}`,
-      `• 📞 *Phone:* ${patient.phone}`,
-      patient.dateOfBirth ? `• 🎂 *Date of Birth:* ${patient.dateOfBirth}` : "",
-      patient.bloodGroup   ? `• 🩸 *Blood Group:* ${patient.bloodGroup}` : "",
-      patient.address      ? `• 📍 *Address:* ${patient.address}` : "",
-      `• 📅 *Registered On:* ${regDate}`,
-    ].filter(Boolean).join("\n")
-
-    const contact = [
-      clinic?.phone   ? `📞 ${clinic.phone}` : "",
-      clinic?.address ? `📍 ${clinic.address}` : "",
-      clinic?.email   ? `✉️ ${clinic.email}` : "",
-    ].filter(Boolean).join("\n")
-
-    const msg =
-      `🌟 *Welcome to ${clinicName}!* 🏥\n\n` +
-      `Dear *${patient.name}*, you have been successfully registered in our system.\n\n` +
-      `${divider}\n` +
-      `📋 *Your Registration Details:*\n` +
-      `${details}\n` +
-      `${divider}\n\n` +
-      `You are now part of the *${clinicName}* family! We are committed to providing you with the best healthcare experience.\n\n` +
-      (contact ? `*Contact Us:*\n${contact}\n\n` : "") +
-      `_Stay healthy and take care!_ 💚`
-
-    sendWhatsApp(patient.phone, msg).catch(() => {})
+    sendWhatsAppTemplate(patient.phone, "welcome_patient", [
+      patient.name,
+      patientRef,
+      regDate,
+      contactInfo,
+    ]).then((ok) => {
+      if (ok) console.log(`[WhatsApp] ✅ Welcome message sent to ${patient.phone} (${patient.name})`)
+    }).catch((err) => {
+      console.error("[WhatsApp] Welcome message failed:", err)
+    })
   }
 
   return NextResponse.json({ data: patient.toJSON() }, { status: 201 })

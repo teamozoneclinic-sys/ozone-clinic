@@ -34,6 +34,21 @@ async function metaPost(body: object): Promise<void> {
   }
 }
 
+// Send a plain text message (only works within 24h of customer-initiated conversation)
+export async function sendWhatsApp(phone: string, message: string): Promise<boolean> {
+  try {
+    await metaPost({
+      to: formatPhone(phone),
+      type: "text",
+      text: { body: message },
+    })
+    return true
+  } catch (err) {
+    console.error("[WhatsApp] Text send failed:", err)
+    return false
+  }
+}
+
 // Send an approved WhatsApp template message with dynamic parameters
 // params: array of strings matching {{1}}, {{2}}, ... in the template body
 export async function sendWhatsAppTemplate(
