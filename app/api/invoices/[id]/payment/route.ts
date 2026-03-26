@@ -2,13 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import Invoice from "@/lib/models/Invoice"
 import Patient from "@/lib/models/Patient"
-import Doctor from "@/lib/models/Doctor"
-import Appointment from "@/lib/models/Appointment"
 import ClinicSettings from "@/lib/models/ClinicSettings"
 import { getRequestUser } from "@/lib/auth"
-import { sendWhatsAppTemplateWithDocument } from "@/lib/whatsapp"
-import { generateReceiptPDF } from "@/lib/generate-receipt-pdf"
-import TempFile from "@/lib/models/TempFile"
+import { sendWhatsAppTemplate } from "@/lib/whatsapp"
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRequestUser(request)
@@ -43,54 +39,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   invoice.status = newStatus as "paid" | "partially-paid" | "unpaid"
   await invoice.save()
 
-  // Auto-send WhatsApp receipt with PDF (non-blocking)
-  const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`
+  // Auto-send WhatsApp receipt text via approved template (non-blocking)
   Promise.all([
     Patient.findById(invoice.patientId),
-    invoice.doctorId ? Doctor.findById(invoice.doctorId) : Promise.resolve(null),
-    invoice.appointmentId ? Appointment.findOne({ _id: invoice.appointmentId }) : Promise.resolve(null),
     ClinicSettings.findOne({}),
-  ]).then(async ([patient, doctor, appointment, clinic]) => {
+  ]).then(async ([patient, clinic]) => {
     if (!patient?.phone) return
     const invoiceRef = invoice._id.toString().slice(-8).toUpperCase()
     try {
-      // Generate PDF server-side
-      const pdfBuffer = await generateReceiptPDF({
-        clinicName: clinic?.name ?? "Clinic",
-        invoiceRef,
-        patientName: patient.name,
-        patientPhone: patient.phone,
-        doctorName: doctor?.name ?? "—",
-        doctorSpecialty: doctor?.specialty,
-        invoiceDate: new Date(invoice.createdAt).toLocaleDateString("en-PK", { dateStyle: "medium" }),
-        paymentDate: new Date(newPayment.collectedAt).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" }),
-        appointmentDate: appointment?.date,
-        appointmentTime: appointment?.time,
-        services: invoice.lineItems.map((item: { description: string; quantity: number; amount: number }) => ({
-          description: item.description,
-          quantity: item.quantity,
-          amount: item.amount,
-        })),
-        totalAmount: invoice.totalAmount,
-        paidAmount: invoice.paidAmount,
-        balance: invoice.balance,
-        paymentMethod: newPayment.method,
-      })
-
-      // Store in MongoDB temporarily
-      const tempFile = await TempFile.create({
-        data: pdfBuffer,
-        contentType: "application/pdf",
-        filename: `receipt-${invoiceRef}.pdf`,
-      })
-      const fileUrl = `${appBaseUrl}/api/temp-file/${tempFile._id}`
-
-      // Send via Meta template with PDF header
-      const ok = await sendWhatsAppTemplateWithDocument(
+      const ok = await sendWhatsAppTemplate(
         patient.phone,
         "payment_receipt",
-        fileUrl,
-        `receipt-${invoiceRef}.pdf`,
         [
           patient.name,
           String(invoice.paidAmount),
@@ -99,10 +58,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         ]
       )
 
-      TempFile.deleteOne({ _id: tempFile._id }).catch(() => {})
-
       if (ok) {
-        console.log(`[WhatsApp] ✅ Receipt PDF sent to ${patient.phone} (invoice #${invoiceRef})`)
+        console.log(`[WhatsApp] ✅ Receipt sent to ${patient.phone} (invoice #${invoiceRef})`)
       }
     } catch (err) {
       console.error("[WhatsApp] Failed to send receipt:", err)
