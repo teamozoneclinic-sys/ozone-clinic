@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       patientRef,
       regDate,
       contactInfo,
-    ]).then((ok) => {
+    ], "en").then((ok) => {
       if (ok) console.log(`[WhatsApp] ✅ Welcome message sent to ${patient.phone} (${patient.name})`)
     }).catch((err) => {
       console.error("[WhatsApp] Welcome message failed:", err)

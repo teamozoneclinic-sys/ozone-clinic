@@ -54,7 +54,8 @@ export async function sendWhatsApp(phone: string, message: string): Promise<bool
 export async function sendWhatsAppTemplate(
   phone: string,
   templateName: string,
-  params: string[]
+  params: string[],
+  langCode = "en_US"
 ): Promise<boolean> {
   try {
     await metaPost({
@@ -62,7 +63,7 @@ export async function sendWhatsAppTemplate(
       type: "template",
       template: {
         name: templateName,
-        language: { code: "en_US" },
+        language: { code: langCode },
         components: [
           {
             type: "body",
@@ -85,7 +86,8 @@ export async function sendWhatsAppTemplateWithDocument(
   templateName: string,
   documentUrl: string,
   documentFilename: string,
-  bodyParams: string[]
+  bodyParams: string[],
+  langCode = "en_US"
 ): Promise<boolean> {
   try {
     await metaPost({
@@ -93,7 +95,7 @@ export async function sendWhatsAppTemplateWithDocument(
       type: "template",
       template: {
         name: templateName,
-        language: { code: "en_US" },
+        language: { code: langCode },
         components: [
           {
             type: "header",
