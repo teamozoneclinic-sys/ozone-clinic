@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
-import { put, del } from "@vercel/blob"
 import { connectDB } from "@/lib/mongodb"
 import Invoice from "@/lib/models/Invoice"
 import Patient from "@/lib/models/Patient"
 import ClinicSettings from "@/lib/models/ClinicSettings"
+import TempFile from "@/lib/models/TempFile"
 import { getRequestUser } from "@/lib/auth"
 import { sendWhatsAppWithFileUrl } from "@/lib/whatsapp"
 
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
       const body = await request.json()
       invoiceId = body.invoiceId
       pdfBase64 = body.pdfBase64
-    } catch (parseErr) {
+    } catch {
       return NextResponse.json({ error: "Failed to parse request body" }, { status: 400 })
     }
 
@@ -37,33 +37,39 @@ export async function POST(request: NextRequest) {
     if (!invoice) return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
 
     const patient = await Patient.findById(invoice.patientId)
-
     if (!patient?.phone) return NextResponse.json({ error: "Patient has no phone number" }, { status: 400 })
 
     const invoiceRef = invoice._id.toString().slice(-8).toUpperCase()
-
-    // Upload PDF to Vercel Blob to get a public URL for Meta Cloud API
     const filename = `receipt-${invoiceRef}.pdf`
     const buffer = Buffer.from(pdfBase64, "base64")
-    const { url: blobUrl } = await put(`receipts/${filename}`, buffer, {
-      access: "public",
+
+    // Store PDF in MongoDB temporarily — auto-deleted after 1 hour
+    const tempFile = await TempFile.create({
+      data: buffer,
       contentType: "application/pdf",
+      filename,
     })
 
-    console.log(`[WA PDF] Uploaded to blob: ${blobUrl}`)
+    // Build a publicly accessible URL pointing to our own serve endpoint
+    const origin = new URL(request.url).origin
+    const fileUrl = `${origin}/api/temp-file/${tempFile._id}`
 
-    // Send via Meta Cloud API — short caption only (full receipt is in the PDF)
-    const shortCaption = `Payment receipt from ${clinic?.name ?? "the Clinic"}. Invoice #${invoiceRef}.`
+    console.log(`[WA PDF] Stored temp file: ${tempFile._id}, URL: ${fileUrl}`)
+
     try {
-      await sendWhatsAppWithFileUrl(patient.phone, blobUrl, filename, "application/pdf", shortCaption)
+      const caption = `Payment receipt from ${clinic?.name ?? "the Clinic"}. Invoice #${invoiceRef}.`
+      await sendWhatsAppWithFileUrl(patient.phone, fileUrl, filename, "application/pdf", caption)
+      console.log(`[WA PDF] ✅ Receipt PDF sent to ${patient.phone} for invoice #${invoiceRef}`)
     } finally {
-      // Always delete blob whether send succeeded or failed
-      del(blobUrl).catch((err) => console.error("[WA PDF] Blob delete failed:", err))
+      // Clean up temp file after sending (TTL also handles this as fallback)
+      TempFile.deleteOne({ _id: tempFile._id }).catch((err) =>
+        console.error("[WA PDF] Temp file cleanup failed:", err)
+      )
     }
 
     return NextResponse.json({ success: true })
   } catch (err) {
-    console.error("[WA PDF] Unhandled error:", err)
-    return NextResponse.json({ error: "Internal server error", detail: String(err) }, { status: 500 })
+    console.error("[WA PDF] Error:", err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }
