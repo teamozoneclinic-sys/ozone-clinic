@@ -7,6 +7,7 @@ import { Heart, Eye, EyeOff, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import Link from "next/link"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -137,6 +138,15 @@ export default function LoginPage() {
           </form>
 
         </div>
+
+        {/* Privacy Policy */}
+        <p className="text-center text-xs text-muted-foreground mt-6">
+          By signing in, you agree to our{" "}
+          <Link href="/privacy-policy" className="underline hover:text-foreground transition-colors">
+            Privacy Policy
+          </Link>
+        </p>
+
       </div>
     </div>
   )
