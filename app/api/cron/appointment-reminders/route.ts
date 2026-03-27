@@ -17,15 +17,14 @@ export async function GET(request: NextRequest) {
 
   await connectDB()
 
-  // Find all treatments with followUpDate = tomorrow
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  const tomorrowStr = tomorrow.toISOString().split("T")[0] // "YYYY-MM-DD"
+  // Find all treatments with followUpDate = today (PKT = UTC+5)
+  const nowPKT = new Date(Date.now() + 5 * 60 * 60 * 1000)
+  const todayStr = nowPKT.toISOString().split("T")[0] // "YYYY-MM-DD"
 
-  const treatments = await Treatment.find({ followUpDate: tomorrowStr })
+  const treatments = await Treatment.find({ followUpDate: todayStr })
 
   if (treatments.length === 0) {
-    return NextResponse.json({ sent: 0, message: "No follow-ups tomorrow" })
+    return NextResponse.json({ sent: 0, message: "No follow-ups today" })
   }
 
   const clinic = await ClinicSettings.findOne({})
@@ -42,7 +41,7 @@ export async function GET(request: NextRequest) {
     const ok = await sendWhatsAppTemplate(
       patient.phone,
       "followup_reminder",
-      [patient.name, tomorrowStr, doctorName, clinicPhone]
+      [patient.name, todayStr, doctorName, clinicPhone]
     )
     if (ok) {
       console.log(`[WhatsApp] ✅ Follow-up reminder sent to ${patient.phone} (${patient.name})`)

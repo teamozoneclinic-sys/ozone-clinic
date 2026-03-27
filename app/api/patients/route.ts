@@ -42,11 +42,11 @@ export async function POST(request: NextRequest) {
     const contactInfo = clinic?.phone ?? clinic?.email ?? "the hospital"
 
     sendWhatsAppTemplate(patient.phone, "welcome_patient", [
-      patient.name,
+      patient.name || "Patient",
       patientRef,
       regDate,
-      contactInfo,
-    ], "en").then((ok) => {
+      contactInfo || "the hospital",
+    ], "en_US").then((ok) => {
       if (ok) console.log(`[WhatsApp] ✅ Welcome message sent to ${patient.phone} (${patient.name})`)
     }).catch((err) => {
       console.error("[WhatsApp] Welcome message failed:", err)
