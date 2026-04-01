@@ -40,10 +40,13 @@ export async function GET(request: NextRequest) {
     const doctor = await Doctor.findById(treatment.doctorId)
     const doctorName = doctor?.name ?? "your doctor"
 
+    const params = [patient.name || "Patient", tomorrowStr, doctorName, clinicPhone]
+    console.log(`[Cron] Sending followup_reminder to ${patient.phone} with params:`, params)
+
     const ok = await sendWhatsAppTemplate(
       patient.phone,
       "followup_reminder",
-      [patient.name, tomorrowStr, doctorName, clinicPhone]
+      params
     )
     if (ok) {
       console.log(`[WhatsApp] ✅ Follow-up reminder sent to ${patient.phone} (${patient.name})`)
