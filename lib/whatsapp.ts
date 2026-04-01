@@ -19,6 +19,8 @@ async function metaPost(body: object): Promise<void> {
     throw new Error("META_PHONE_NUMBER_ID or META_WA_TOKEN env var missing")
   }
 
+  console.log(`[WhatsApp] POST to /${phoneNumberId}/messages — to: ${(body as Record<string, string>).to}`)
+
   const res = await fetch(`${GRAPH_URL}/${phoneNumberId}/messages`, {
     method: "POST",
     headers: {
@@ -28,9 +30,11 @@ async function metaPost(body: object): Promise<void> {
     body: JSON.stringify({ messaging_product: "whatsapp", ...body }),
   })
 
+  const responseText = await res.text().catch(() => "")
+  console.log(`[WhatsApp] Meta API response ${res.status}:`, responseText)
+
   if (!res.ok) {
-    const text = await res.text().catch(() => "")
-    throw new Error(`Meta API ${res.status}: ${text}`)
+    throw new Error(`Meta API ${res.status}: ${responseText}`)
   }
 }
 

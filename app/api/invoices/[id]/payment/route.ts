@@ -4,10 +4,10 @@ import Invoice from "@/lib/models/Invoice"
 import Patient from "@/lib/models/Patient"
 import Doctor from "@/lib/models/Doctor"
 import ClinicSettings from "@/lib/models/ClinicSettings"
-import TempFile from "@/lib/models/TempFile"
 import { getRequestUser } from "@/lib/auth"
-import { sendWhatsAppTemplate, sendWhatsAppWithFileUrl } from "@/lib/whatsapp"
+import { sendWhatsAppTemplateWithDocument } from "@/lib/whatsapp"
 import { generateReceiptPDF } from "@/lib/generate-receipt-pdf"
+import { put, del } from "@vercel/blob"
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRequestUser(request)
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   invoice.status = newStatus as "paid" | "partially-paid" | "unpaid"
   await invoice.save()
 
-  // Auto-send WhatsApp receipt (text + PDF) — non-blocking
+  // Auto-send WhatsApp receipt with PDF via template — non-blocking
   Promise.all([
     Patient.findById(invoice.patientId),
     ClinicSettings.findOne({}),
@@ -51,30 +51,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!patient?.phone) return
     const invoiceRef = invoice._id.toString().slice(-8).toUpperCase()
 
-    // Step 1: Send text template (opens 24h messaging window)
-    const ok = await sendWhatsAppTemplate(
-      patient.phone,
-      "payment_receipt",
-      [
-        patient.name || "Patient",
-        String(invoice.paidAmount),
-        invoiceRef,
-        clinic?.name ?? "the Clinic",
-      ]
-    )
-
-    if (ok) {
-      console.log(`[WhatsApp] ✅ Receipt text sent to ${patient.phone} (invoice #${invoiceRef})`)
-    }
-
-    // Step 2: Generate PDF and send it (works because template message opened the window)
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL
-    if (!appUrl || appUrl.includes("localhost")) {
-      // Skip PDF send in local dev — Meta can't reach localhost
-      return
-    }
-
+    let blobUrl: string | null = null
     try {
+      // Generate PDF
       const pdfBuffer = await generateReceiptPDF({
         clinicName: clinic?.name ?? "Clinic",
         invoiceRef,
@@ -95,24 +74,37 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         paymentMethod: body.method || "Cash",
       })
 
-      // Store PDF temporarily in MongoDB (auto-deleted after 1 hour)
-      const tempFile = await TempFile.create({
-        data: pdfBuffer,
+      // Upload to Vercel Blob to get a public URL Meta can fetch
+      const blob = await put(`receipts/receipt-${invoiceRef}.pdf`, pdfBuffer, {
+        access: "public",
         contentType: "application/pdf",
-        filename: `receipt-${invoiceRef}.pdf`,
       })
+      blobUrl = blob.url
 
-      const pdfUrl = `${appUrl}/api/temp-file/${tempFile._id}`
-      await sendWhatsAppWithFileUrl(
+      // Send payment_receipt template with document header + body params
+      const ok = await sendWhatsAppTemplateWithDocument(
         patient.phone,
-        pdfUrl,
+        "payment_receipt",
+        blobUrl,
         `Receipt-${invoiceRef}.pdf`,
-        "application/pdf",
-        `Receipt #${invoiceRef}`
+        [
+          patient.name || "Patient",
+          String(invoice.paidAmount),
+          invoiceRef,
+          clinic?.name ?? "the Clinic",
+        ]
       )
-      console.log(`[WhatsApp] ✅ Receipt PDF sent to ${patient.phone} (invoice #${invoiceRef})`)
+
+      if (ok) {
+        console.log(`[WhatsApp] ✅ Receipt sent to ${patient.phone} (invoice #${invoiceRef})`)
+      }
     } catch (err) {
-      console.error("[WhatsApp] Failed to send receipt PDF:", err)
+      console.error("[WhatsApp] Failed to send receipt:", err)
+    } finally {
+      // Clean up blob after 2 minutes (Meta fetches it quickly)
+      if (blobUrl) {
+        setTimeout(() => del(blobUrl!).catch(() => {}), 2 * 60 * 1000)
+      }
     }
   }).catch((err) => {
     console.error("[WhatsApp] Failed to fetch data for receipt:", err)
