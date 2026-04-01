@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
   }
 
   const clinic = await ClinicSettings.findOne({})
-  const clinicPhone = clinic?.phone ?? "the hospital"
+  const clinicPhone = clinic?.phone || clinic?.name || "the hospital"
   let sent = 0
 
   for (const treatment of treatments) {
