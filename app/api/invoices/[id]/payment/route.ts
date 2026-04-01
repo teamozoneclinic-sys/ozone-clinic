@@ -4,10 +4,10 @@ import Invoice from "@/lib/models/Invoice"
 import Patient from "@/lib/models/Patient"
 import Doctor from "@/lib/models/Doctor"
 import ClinicSettings from "@/lib/models/ClinicSettings"
+import TempFile from "@/lib/models/TempFile"
 import { getRequestUser } from "@/lib/auth"
 import { sendWhatsAppTemplateWithDocument } from "@/lib/whatsapp"
 import { generateReceiptPDF } from "@/lib/generate-receipt-pdf"
-import { put, del } from "@vercel/blob"
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRequestUser(request)
@@ -42,7 +42,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   invoice.status = newStatus as "paid" | "partially-paid" | "unpaid"
   await invoice.save()
 
-  // Auto-send WhatsApp receipt with PDF via template — non-blocking
+  // Auto-send WhatsApp receipt with PDF — non-blocking
+  const origin = new URL(request.url).origin
   Promise.all([
     Patient.findById(invoice.patientId),
     ClinicSettings.findOne({}),
@@ -51,9 +52,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!patient?.phone) return
     const invoiceRef = invoice._id.toString().slice(-8).toUpperCase()
 
-    let blobUrl: string | null = null
     try {
-      // Generate PDF
       const pdfBuffer = await generateReceiptPDF({
         clinicName: clinic?.name ?? "Clinic",
         invoiceRef,
@@ -74,18 +73,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         paymentMethod: body.method || "Cash",
       })
 
-      // Upload to Vercel Blob to get a public URL Meta can fetch
-      const blob = await put(`receipts/receipt-${invoiceRef}.pdf`, pdfBuffer, {
-        access: "public",
+      const tempFile = await TempFile.create({
+        data: pdfBuffer,
         contentType: "application/pdf",
+        filename: `receipt-${invoiceRef}.pdf`,
       })
-      blobUrl = blob.url
 
-      // Send payment_receipt template with document header + body params
+      const pdfUrl = `${origin}/api/temp-file/${tempFile._id}`
+
       const ok = await sendWhatsAppTemplateWithDocument(
         patient.phone,
         "payment_receipt",
-        blobUrl,
+        pdfUrl,
         `Receipt-${invoiceRef}.pdf`,
         [
           patient.name || "Patient",
@@ -98,13 +97,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       if (ok) {
         console.log(`[WhatsApp] ✅ Receipt sent to ${patient.phone} (invoice #${invoiceRef})`)
       }
+
+      // Clean up temp file after 10 minutes (Meta fetches it quickly)
+      setTimeout(() => {
+        TempFile.deleteOne({ _id: tempFile._id }).catch(() => {})
+      }, 10 * 60 * 1000)
     } catch (err) {
       console.error("[WhatsApp] Failed to send receipt:", err)
-    } finally {
-      // Clean up blob after 2 minutes (Meta fetches it quickly)
-      if (blobUrl) {
-        setTimeout(() => del(blobUrl!).catch(() => {}), 2 * 60 * 1000)
-      }
     }
   }).catch((err) => {
     console.error("[WhatsApp] Failed to fetch data for receipt:", err)

@@ -4,10 +4,10 @@ import Invoice from "@/lib/models/Invoice"
 import Patient from "@/lib/models/Patient"
 import Doctor from "@/lib/models/Doctor"
 import ClinicSettings from "@/lib/models/ClinicSettings"
+import TempFile from "@/lib/models/TempFile"
 import { getRequestUser } from "@/lib/auth"
 import { sendWhatsAppTemplateWithDocument } from "@/lib/whatsapp"
 import { generateReceiptPDF } from "@/lib/generate-receipt-pdf"
-import { put, del } from "@vercel/blob"
 
 export async function POST(request: NextRequest) {
   const user = await getRequestUser(request)
@@ -37,7 +37,6 @@ export async function POST(request: NextRequest) {
     ? invoice.payments[invoice.payments.length - 1]
     : null
 
-  let blobUrl: string | null = null
   try {
     const pdfBuffer = await generateReceiptPDF({
       clinicName: clinic?.name ?? "Clinic",
@@ -61,16 +60,19 @@ export async function POST(request: NextRequest) {
       paymentMethod: lastPayment?.method || "Cash",
     })
 
-    const blob = await put(`receipts/receipt-${invoiceRef}.pdf`, pdfBuffer, {
-      access: "public",
+    const origin = new URL(request.url).origin
+    const tempFile = await TempFile.create({
+      data: pdfBuffer,
       contentType: "application/pdf",
+      filename: `receipt-${invoiceRef}.pdf`,
     })
-    blobUrl = blob.url
+
+    const pdfUrl = `${origin}/api/temp-file/${tempFile._id}`
 
     await sendWhatsAppTemplateWithDocument(
       patient.phone,
       "payment_receipt",
-      blobUrl,
+      pdfUrl,
       `Receipt-${invoiceRef}.pdf`,
       [
         patient.name || "Patient",
@@ -80,14 +82,14 @@ export async function POST(request: NextRequest) {
       ]
     )
 
+    setTimeout(() => {
+      TempFile.deleteOne({ _id: tempFile._id }).catch(() => {})
+    }, 10 * 60 * 1000)
+
     console.log(`[WhatsApp] ✅ Receipt sent to ${patient.phone} (invoice #${invoiceRef})`)
     return NextResponse.json({ success: true })
   } catch (err) {
     console.error("[WhatsApp] Failed to send receipt:", err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
-  } finally {
-    if (blobUrl) {
-      setTimeout(() => del(blobUrl!).catch(() => {}), 2 * 60 * 1000)
-    }
   }
 }
