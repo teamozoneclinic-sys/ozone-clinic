@@ -3,11 +3,11 @@ import { connectDB } from "@/lib/mongodb"
 import Invoice from "@/lib/models/Invoice"
 import Patient from "@/lib/models/Patient"
 import Doctor from "@/lib/models/Doctor"
-import Appointment from "@/lib/models/Appointment"
 import ClinicSettings from "@/lib/models/ClinicSettings"
 import { getRequestUser } from "@/lib/auth"
-import { sendWhatsApp } from "@/lib/whatsapp"
-import { buildReceiptMessage } from "@/lib/receipt-message"
+import { sendWhatsAppTemplateWithDocument } from "@/lib/whatsapp"
+import { generateReceiptPDF } from "@/lib/generate-receipt-pdf"
+import { put, del } from "@vercel/blob"
 
 export async function POST(request: NextRequest) {
   const user = await getRequestUser(request)
@@ -25,46 +25,69 @@ export async function POST(request: NextRequest) {
 
   if (!invoice) return NextResponse.json({ error: "Invoice not found" }, { status: 404 })
 
-  const [patient, doctor, appointment] = await Promise.all([
+  const [patient, doctor] = await Promise.all([
     Patient.findById(invoice.patientId),
     invoice.doctorId ? Doctor.findById(invoice.doctorId) : Promise.resolve(null),
-    invoice.appointmentId ? Appointment.findOne({ _id: invoice.appointmentId }) : Promise.resolve(null),
   ])
 
   if (!patient?.phone) return NextResponse.json({ error: "Patient has no phone number" }, { status: 400 })
 
+  const invoiceRef = invoice._id.toString().slice(-8).toUpperCase()
   const lastPayment = invoice.payments.length > 0
     ? invoice.payments[invoice.payments.length - 1]
     : null
 
-  const message = buildReceiptMessage({
-    clinicName: clinic?.name ?? "the Clinic",
-    clinicPhone: clinic?.phone,
-    clinicAddress: clinic?.address,
-    patientName: patient.name,
-    invoiceRef: invoice._id.toString().slice(-8).toUpperCase(),
-    invoiceDate: new Date(invoice.createdAt).toLocaleDateString("en-PK", { dateStyle: "medium" }),
-    paymentDate: lastPayment
-      ? new Date(lastPayment.collectedAt).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" })
-      : new Date().toLocaleDateString("en-PK", { dateStyle: "medium" }),
-    doctorName: doctor?.name ?? "—",
-    doctorSpecialty: doctor?.specialty,
-    appointmentDate: appointment?.date,
-    appointmentTime: appointment?.time,
-    services: invoice.lineItems.map((item) => ({
-      description: item.description,
-      quantity: item.quantity,
-      amount: item.amount,
-    })),
-    totalAmount: invoice.totalAmount,
-    paidAmount: invoice.paidAmount,
-    balance: invoice.balance,
-    paymentMethod: lastPayment?.method ?? "—",
-    reference: lastPayment?.reference,
-  })
+  let blobUrl: string | null = null
+  try {
+    const pdfBuffer = await generateReceiptPDF({
+      clinicName: clinic?.name ?? "Clinic",
+      invoiceRef,
+      patientName: patient.name || "Patient",
+      patientPhone: patient.phone,
+      doctorName: doctor?.name ?? "Doctor",
+      doctorSpecialty: doctor?.specialty,
+      invoiceDate: new Date(invoice.createdAt).toLocaleDateString("en-PK", { dateStyle: "long" }),
+      paymentDate: lastPayment
+        ? new Date(lastPayment.collectedAt).toLocaleDateString("en-PK", { dateStyle: "long" })
+        : new Date().toLocaleDateString("en-PK", { dateStyle: "long" }),
+      services: invoice.lineItems.map((item: { description: string; quantity: number; amount: number }) => ({
+        description: item.description,
+        quantity: item.quantity ?? 1,
+        amount: item.amount,
+      })),
+      totalAmount: invoice.totalAmount,
+      paidAmount: invoice.paidAmount,
+      balance: invoice.balance,
+      paymentMethod: lastPayment?.method || "Cash",
+    })
 
-  const sent = await sendWhatsApp(patient.phone, message)
-  if (!sent) return NextResponse.json({ error: "Failed to send WhatsApp message" }, { status: 500 })
+    const blob = await put(`receipts/receipt-${invoiceRef}.pdf`, pdfBuffer, {
+      access: "public",
+      contentType: "application/pdf",
+    })
+    blobUrl = blob.url
 
-  return NextResponse.json({ success: true })
+    await sendWhatsAppTemplateWithDocument(
+      patient.phone,
+      "payment_receipt",
+      blobUrl,
+      `Receipt-${invoiceRef}.pdf`,
+      [
+        patient.name || "Patient",
+        String(invoice.paidAmount),
+        invoiceRef,
+        clinic?.name ?? "the Clinic",
+      ]
+    )
+
+    console.log(`[WhatsApp] ✅ Receipt sent to ${patient.phone} (invoice #${invoiceRef})`)
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error("[WhatsApp] Failed to send receipt:", err)
+    return NextResponse.json({ error: String(err) }, { status: 500 })
+  } finally {
+    if (blobUrl) {
+      setTimeout(() => del(blobUrl!).catch(() => {}), 2 * 60 * 1000)
+    }
+  }
 }

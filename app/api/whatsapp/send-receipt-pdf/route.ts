@@ -3,9 +3,9 @@ import { connectDB } from "@/lib/mongodb"
 import Invoice from "@/lib/models/Invoice"
 import Patient from "@/lib/models/Patient"
 import ClinicSettings from "@/lib/models/ClinicSettings"
-import TempFile from "@/lib/models/TempFile"
 import { getRequestUser } from "@/lib/auth"
 import { sendWhatsAppTemplateWithDocument } from "@/lib/whatsapp"
+import { put, del } from "@vercel/blob"
 
 export const dynamic = "force-dynamic"
 
@@ -43,43 +43,39 @@ export async function POST(request: NextRequest) {
     const filename = `receipt-${invoiceRef}.pdf`
     const buffer = Buffer.from(pdfBase64, "base64")
 
-    // Store PDF in MongoDB temporarily — auto-deleted after 1 hour
-    const tempFile = await TempFile.create({
-      data: buffer,
-      contentType: "application/pdf",
-      filename,
-    })
-
-    // Build a publicly accessible URL pointing to our own serve endpoint
-    const origin = new URL(request.url).origin
-    const fileUrl = `${origin}/api/temp-file/${tempFile._id}`
-
-    console.log(`[WA PDF] Stored temp file: ${tempFile._id}, URL: ${fileUrl}`)
-
+    let blobUrl: string | null = null
     try {
+      const blob = await put(`receipts/${filename}`, buffer, {
+        access: "public",
+        contentType: "application/pdf",
+      })
+      blobUrl = blob.url
+
       await sendWhatsAppTemplateWithDocument(
         patient.phone,
         "payment_receipt",
-        fileUrl,
+        blobUrl,
         filename,
         [
-          patient.name,
+          patient.name || "Patient",
           String(invoice.paidAmount),
           invoiceRef,
           clinic?.name ?? "the Clinic",
         ]
       )
-      console.log(`[WA PDF] ✅ Receipt PDF sent to ${patient.phone} for invoice #${invoiceRef}`)
-    } finally {
-      // Clean up temp file after sending (TTL also handles this as fallback)
-      TempFile.deleteOne({ _id: tempFile._id }).catch((err) =>
-        console.error("[WA PDF] Temp file cleanup failed:", err)
-      )
-    }
 
-    return NextResponse.json({ success: true })
+      console.log(`[WA PDF] ✅ Receipt PDF sent to ${patient.phone} for invoice #${invoiceRef}`)
+      return NextResponse.json({ success: true })
+    } catch (err) {
+      console.error("[WA PDF] Error:", err)
+      return NextResponse.json({ error: String(err) }, { status: 500 })
+    } finally {
+      if (blobUrl) {
+        setTimeout(() => del(blobUrl!).catch(() => {}), 2 * 60 * 1000)
+      }
+    }
   } catch (err) {
-    console.error("[WA PDF] Error:", err)
+    console.error("[WA PDF] Outer error:", err)
     return NextResponse.json({ error: String(err) }, { status: 500 })
   }
 }
