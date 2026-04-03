@@ -41,6 +41,13 @@ function timeToMinutes(t: string): number {
   return h * 60 + m
 }
 
+function formatTime12h(time: string): string {
+  const [h, m] = time.split(":").map(Number)
+  const period = h >= 12 ? "PM" : "AM"
+  const hour = h % 12 === 0 ? 12 : h % 12
+  return `${hour}:${m.toString().padStart(2, "0")} ${period}`
+}
+
 function generateSlots(startTime: string, endTime: string, step = 30): string[] {
   const slots: string[] = []
   let cur = timeToMinutes(startTime)
@@ -132,7 +139,7 @@ function TimeSlotPicker({
   return (
     <div className="flex flex-col gap-2">
       <div className="text-xs text-muted-foreground">
-        {schedules.map((s) => `${s.startTime}–${s.endTime}`).join(", ")} &nbsp;·&nbsp;
+        {schedules.map((s) => `${formatTime12h(s.startTime)}–${formatTime12h(s.endTime)}`).join(", ")} &nbsp;·&nbsp;
         <span className="text-emerald-600 font-medium">{available.length} slots free</span>
         {bookedSlots.size > 0 && (
           <span className="text-red-500"> · {bookedSlots.size} booked</span>
@@ -159,7 +166,7 @@ function TimeSlotPicker({
                     : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300"
                 }`}
               >
-                {slot}
+                {formatTime12h(slot)}
               </button>
             )
           })}
