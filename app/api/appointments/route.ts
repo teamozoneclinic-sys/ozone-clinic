@@ -3,7 +3,9 @@ import { connectDB } from "@/lib/mongodb"
 import Appointment from "@/lib/models/Appointment"
 import Invoice from "@/lib/models/Invoice"
 import Doctor from "@/lib/models/Doctor"
+import Patient from "@/lib/models/Patient"
 import { getRequestUser } from "@/lib/auth"
+import { sendWhatsAppTemplate } from "@/lib/whatsapp"
 
 export async function GET(request: NextRequest) {
   const user = await getRequestUser(request)
@@ -66,5 +68,43 @@ export async function POST(request: NextRequest) {
     // Invoice creation failure is non-fatal
   }
 
+  // Send WhatsApp appointment confirmation — non-blocking
+  Promise.all([
+    Patient.findById(body.patientId),
+    Doctor.findById(body.doctorId),
+  ]).then(async ([patient, doctor]) => {
+    if (!patient?.phone) return
+
+    const formattedDate = new Date(body.date).toLocaleDateString("en-PK", { dateStyle: "long" })
+    const formattedTime = formatTime12h(body.time)
+    const appointmentType = body.type
+      ? body.type.replace(/-/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())
+      : "Consultation"
+
+    const ok = await sendWhatsAppTemplate(
+      patient.phone,
+      "appointment_confirmation",
+      [
+        patient.name || "Patient",
+        doctor?.name || "Doctor",
+        formattedDate,
+        formattedTime,
+        appointmentType,
+      ]
+    )
+    if (ok) {
+      console.log(`[WhatsApp] ✅ Appointment confirmation sent to ${patient.phone} (${patient.name})`)
+    }
+  }).catch((err) => {
+    console.error("[WhatsApp] Appointment confirmation failed:", err)
+  })
+
   return NextResponse.json({ data: appointment.toJSON() }, { status: 201 })
+}
+
+function formatTime12h(time: string): string {
+  const [h, m] = time.split(":").map(Number)
+  const period = h >= 12 ? "PM" : "AM"
+  const hour = h % 12 === 0 ? 12 : h % 12
+  return `${hour}:${m.toString().padStart(2, "0")} ${period}`
 }
