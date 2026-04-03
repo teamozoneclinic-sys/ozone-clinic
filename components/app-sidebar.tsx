@@ -29,6 +29,7 @@ import {
   Heart,
   FlaskConical,
   UserRound,
+  MessageCircle,
 } from "lucide-react"
 import type { Permission } from "@/lib/types"
 
@@ -54,6 +55,7 @@ const financeNav: NavItem[] = [
 
 const adminNav: NavItem[] = [
   { title: "Doctors", href: "/doctors", icon: UserRound, permission: "doctors.view" },
+  { title: "WA Requests", href: "/appointment-requests", icon: MessageCircle, permission: "appointments.view" },
   { title: "Settings", href: "/settings", icon: Settings, permission: "settings.view" },
   { title: "Audit Log", href: "/audit", icon: ScrollText, permission: "audit.view" },
 ]

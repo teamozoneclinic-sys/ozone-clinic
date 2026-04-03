@@ -143,3 +143,31 @@ export async function sendWhatsAppWithFileUrl(
     },
   })
 }
+
+// Send interactive button message (works within 24h session window)
+export async function sendWhatsAppInteractiveButtons(
+  phone: string,
+  bodyText: string,
+  buttons: Array<{ id: string; title: string }>
+): Promise<boolean> {
+  try {
+    await metaPost({
+      to: formatPhone(phone),
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: bodyText },
+        action: {
+          buttons: buttons.map((btn) => ({
+            type: "reply",
+            reply: { id: btn.id, title: btn.title },
+          })),
+        },
+      },
+    })
+    return true
+  } catch (err) {
+    console.error("[WhatsApp] Interactive buttons send failed:", err)
+    return false
+  }
+}
