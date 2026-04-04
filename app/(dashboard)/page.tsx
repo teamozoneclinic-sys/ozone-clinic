@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { StatCard } from "@/components/stat-card"
@@ -17,21 +17,39 @@ import {
   AlertTriangle,
   Eye,
   EyeOff,
-  Bell,
+  MessageCircle,
   Stethoscope,
   ChevronRight,
+  Phone,
 } from "lucide-react"
 import Link from "next/link"
 import { getPKTDateString } from "@/lib/pkt"
 
-// ─── Static mock data ──────────────────────────────────────────────────────
+type WaRequest = {
+  _id: string
+  name: string
+  dateOfBirth: string
+  phone: string
+  status: "pending" | "contacted" | "booked" | "cancelled"
+  createdAt: string
+}
 
-const REMINDERS = [
-  { id: 1, text: "Follow up with Ahmad Raza — MRI results pending", priority: "high" as const },
-  { id: 2, text: "Submit monthly patient summary report", priority: "medium" as const },
-  { id: 3, text: "Schedule staff meeting for next Monday", priority: "medium" as const },
-  { id: 4, text: "Restock examination room supplies", priority: "low" as const },
-]
+const STATUS_COLORS: Record<WaRequest["status"], string> = {
+  pending: "bg-amber-100 text-amber-700",
+  contacted: "bg-blue-100 text-blue-700",
+  booked: "bg-emerald-100 text-emerald-700",
+  cancelled: "bg-red-100 text-red-700",
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
 
 type ScheduleView = "today" | "tomorrow" | "week"
 
@@ -91,6 +109,21 @@ export default function DashboardPage() {
   const totalUnpaid = unpaidInvoices.reduce((sum, inv) => sum + inv.balance, 0)
 
   const [revenueHidden, setRevenueHidden] = useState(true)
+  const [waRequests, setWaRequests] = useState<WaRequest[]>([])
+
+  useEffect(() => {
+    fetch("/api/appointment-requests")
+      .then((r) => r.json())
+      .then((d) => setWaRequests(d.data ?? []))
+      .catch(() => {})
+    const timer = setInterval(() => {
+      fetch("/api/appointment-requests")
+        .then((r) => r.json())
+        .then((d) => setWaRequests(d.data ?? []))
+        .catch(() => {})
+    }, 30_000)
+    return () => clearInterval(timer)
+  }, [])
 
   // ── Doctor schedule view (Today / Tomorrow / Next 7 Days) ──────────────
   const [scheduleView, setScheduleView] = useState<ScheduleView>("today")
@@ -323,38 +356,60 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Right column — Reminders */}
+        {/* Right column — WA Requests */}
         <div className="lg:col-span-2 flex flex-col gap-6">
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100">
-                  <Bell className="h-4 w-4 text-violet-600" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-green-100">
+                    <MessageCircle className="h-4 w-4 text-green-600" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-base font-semibold">WA Requests</CardTitle>
+                    <CardDescription className="text-xs">
+                      {waRequests.filter((r) => r.status === "pending").length} pending
+                    </CardDescription>
+                  </div>
                 </div>
-                <div>
-                  <CardTitle className="text-base font-semibold">Reminders</CardTitle>
-                  <CardDescription className="text-xs">{REMINDERS.length} pending tasks</CardDescription>
-                </div>
+                <Link href="/appointment-requests">
+                  <Button variant="ghost" size="sm" className="h-8 gap-1 text-xs text-muted-foreground">
+                    View all <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </Link>
               </div>
             </CardHeader>
             <CardContent className="px-4 pb-4 flex flex-col gap-2">
-              {REMINDERS.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-start gap-3 rounded-lg border border-border/60 px-3 py-2.5 hover:bg-accent/30 transition-colors cursor-pointer"
-                >
-                  <div
-                    className={`mt-0.5 h-2.5 w-2.5 rounded-full shrink-0 ${
-                      item.priority === "high"
-                        ? "bg-red-500"
-                        : item.priority === "medium"
-                        ? "bg-amber-500"
-                        : "bg-muted-foreground/30"
-                    }`}
-                  />
-                  <p className="text-sm text-foreground leading-snug">{item.text}</p>
-                </div>
-              ))}
+              {waRequests.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No appointment requests yet.
+                </p>
+              ) : (
+                waRequests.slice(0, 5).map((req) => (
+                  <Link
+                    key={req._id}
+                    href="/appointment-requests"
+                    className="flex items-start gap-3 rounded-lg border border-border/60 px-3 py-2.5 hover:bg-accent/30 transition-colors"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-100 text-xs font-bold text-green-700">
+                      {req.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground truncate">{req.name}</p>
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Phone className="h-3 w-3" />
+                        {req.phone}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full capitalize ${STATUS_COLORS[req.status]}`}>
+                        {req.status}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">{timeAgo(req.createdAt)}</span>
+                    </div>
+                  </Link>
+                ))
+              )}
             </CardContent>
           </Card>
         </div>

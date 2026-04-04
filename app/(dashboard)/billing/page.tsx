@@ -66,7 +66,18 @@ export default function BillingPage() {
   const router = useRouter()
   const [search, setSearch] = useState("")
   const [doctorFilter, setDoctorFilter] = useState("all")
-  const [amountsHidden, setAmountsHidden] = useState(true)
+  const [amountsHidden, setAmountsHidden] = useState(() => {
+    if (typeof window === "undefined") return true
+    const stored = localStorage.getItem("billing-amounts-hidden")
+    return stored === null ? true : stored === "true"
+  })
+
+  const toggleAmountsHidden = () =>
+    setAmountsHidden((prev) => {
+      const next = !prev
+      localStorage.setItem("billing-amounts-hidden", String(next))
+      return next
+    })
   const [collectingInvoice, setCollectingInvoice] = useState<Invoice | null>(null)
 
   const canCollect = hasPermission("billing.collect")
@@ -136,7 +147,7 @@ export default function BillingPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setAmountsHidden((h) => !h)}
+                  onClick={toggleAmountsHidden}
                   className="gap-2"
                 >
                   {amountsHidden ? (
