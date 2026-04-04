@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect, useMemo } from "react"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { StatCard } from "@/components/stat-card"
@@ -7,15 +8,70 @@ import { StatusBadge } from "@/components/status-badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { DollarSign, Receipt, TrendingUp, Users } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from "recharts"
+import { DollarSign, Download, Receipt, TrendingUp, Users } from "lucide-react"
 import Link from "next/link"
 import { getPKTDateString } from "@/lib/pkt"
 
 const TODAY = getPKTDateString()
+const CHART_COLORS = ["#6366f1", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#84cc16"]
+
+// ── Date helpers ──────────────────────────────────────────────────────────────
+
+function addDays(dateStr: string, n: number): string {
+  const d = new Date(dateStr)
+  d.setDate(d.getDate() + n)
+  return d.toISOString().split("T")[0]
+}
+
+function getDateRange(
+  filter: "today" | "week" | "month" | "custom",
+  customFrom: string,
+  customTo: string
+): { from: string; to: string } {
+  if (filter === "today") return { from: TODAY, to: TODAY }
+  if (filter === "week") return { from: addDays(TODAY, -6), to: TODAY }
+  if (filter === "month") return { from: addDays(TODAY, -29), to: TODAY }
+  return { from: customFrom || TODAY, to: customTo || TODAY }
+}
+
+function inRange(dateStr: string, from: string, to: string): boolean {
+  const d = dateStr.split("T")[0]
+  return d >= from && d <= to
+}
 
 function daysBetween(dateStr: string): number {
-  const from = new Date(dateStr)
+  const from = new Date(dateStr.split("T")[0])
   const to = new Date(TODAY)
   return Math.floor((to.getTime() - from.getTime()) / (1000 * 60 * 60 * 24))
 }
@@ -26,38 +82,164 @@ function agingBucket(days: number): "0-7" | "8-30" | "31+" {
   return "31+"
 }
 
+// ── CSV helper ────────────────────────────────────────────────────────────────
+
+function downloadCSV(
+  filename: string,
+  headers: string[],
+  rows: Array<Array<string | number>>
+) {
+  const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`
+  const lines = [
+    headers.map(esc).join(","),
+    ...rows.map((row) => row.map(esc).join(",")),
+  ]
+  const blob = new Blob([lines.join("\n")], { type: "text/csv" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export default function ReportsPage() {
   const { invoices, doctors, patients, getPatient, getDoctor } = useStore()
 
-  // ── Daily Collections ──────────────────────────────────────
-  const allPayments = invoices.flatMap((inv) =>
-    inv.payments.map((p) => ({ ...p, doctorId: inv.doctorId }))
+  // ── Filters ──────────────────────────────────────────────────────────────
+  const [period, setPeriod] = useState<"today" | "week" | "month" | "custom">("today")
+  const [customFrom, setCustomFrom] = useState(TODAY)
+  const [customTo, setCustomTo] = useState(TODAY)
+  const [staffFilter, setStaffFilter] = useState("all")
+  const [doctorFilter, setDoctorFilter] = useState("all")
+
+  // Dynamic staff list from users API
+  const [staffUsers, setStaffUsers] = useState<{ name: string; role: string }[]>([])
+  useEffect(() => {
+    fetch("/api/users")
+      .then((r) => r.json())
+      .then((d) => setStaffUsers(d.data ?? []))
+      .catch(() => {})
+  }, [])
+
+  const { from, to } = getDateRange(period, customFrom, customTo)
+  const periodLabel = period === "today" ? TODAY : `${from} → ${to}`
+
+  // ── Payments in selected date range ──────────────────────────────────────
+  const allPayments = useMemo(
+    () =>
+      invoices.flatMap((inv) =>
+        inv.payments
+          .filter((p) => inRange(p.collectedAt, from, to))
+          .map((p) => ({
+            ...p,
+            doctorId: inv.doctorId,
+            patientId: inv.patientId,
+          }))
+      ),
+    [invoices, from, to]
   )
-  const todayPayments = allPayments.filter((p) => p.collectedAt.startsWith(TODAY))
-  const totalCollectedToday = todayPayments.reduce((s, p) => s + p.amount, 0)
 
-  const byCollector: Record<string, { name: string; total: number; count: number }> = {}
-  for (const p of todayPayments) {
-    if (!byCollector[p.collectedBy]) {
-      byCollector[p.collectedBy] = { name: p.collectedBy, total: 0, count: 0 }
-    }
-    byCollector[p.collectedBy].total += p.amount
-    byCollector[p.collectedBy].count += 1
-  }
+  // Further filter by staff
+  const filteredPayments = useMemo(
+    () =>
+      staffFilter === "all"
+        ? allPayments
+        : allPayments.filter((p) => p.collectedBy === staffFilter),
+    [allPayments, staffFilter]
+  )
 
-  const byDoctorToday: Record<string, { doctorId: string; total: number; count: number }> = {}
-  for (const p of todayPayments) {
-    if (!byDoctorToday[p.doctorId]) {
-      byDoctorToday[p.doctorId] = { doctorId: p.doctorId, total: 0, count: 0 }
-    }
-    byDoctorToday[p.doctorId].total += p.amount
-    byDoctorToday[p.doctorId].count += 1
-  }
+  const totalCollected = filteredPayments.reduce((s, p) => s + p.amount, 0)
 
-  // ── Unpaid Aging ───────────────────────────────────────────
+  // ── Point-in-time stats (no date filter) ──────────────────────────────────
   const unpaidInvoices = invoices.filter(
     (inv) => inv.status === "unpaid" || inv.status === "partially-paid"
   )
+  const totalOutstanding = unpaidInvoices.reduce((s, i) => s + i.balance, 0)
+  const totalRevenue = invoices.reduce((s, i) => s + i.paidAmount, 0)
+
+  // ── Collections by staff ──────────────────────────────────────────────────
+  const byCollector = useMemo(() => {
+    const map: Record<string, { name: string; total: number; count: number }> = {}
+    for (const p of filteredPayments) {
+      if (!map[p.collectedBy])
+        map[p.collectedBy] = { name: p.collectedBy, total: 0, count: 0 }
+      map[p.collectedBy].total += p.amount
+      map[p.collectedBy].count++
+    }
+    return Object.values(map).sort((a, b) => b.total - a.total)
+  }, [filteredPayments])
+
+  // ── Payment methods breakdown ─────────────────────────────────────────────
+  const byMethod = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const p of filteredPayments) {
+      map[p.method] = (map[p.method] || 0) + p.amount
+    }
+    return Object.entries(map).map(([name, value]) => ({
+      name: name.replace(/-/g, " "),
+      value,
+    }))
+  }, [filteredPayments])
+
+  // ── Daily collections chart ───────────────────────────────────────────────
+  const dailyChartData = useMemo(() => {
+    if (period === "today") return []
+    const map: Record<string, number> = {}
+    let cur = from
+    while (cur <= to) {
+      map[cur] = 0
+      const d = new Date(cur)
+      d.setDate(d.getDate() + 1)
+      cur = d.toISOString().split("T")[0]
+    }
+    for (const p of filteredPayments) {
+      const d = p.collectedAt.split("T")[0]
+      if (d in map) map[d] = (map[d] || 0) + p.amount
+    }
+    return Object.entries(map).map(([date, amount]) => ({
+      date: new Date(date).toLocaleDateString("en-PK", {
+        month: "short",
+        day: "numeric",
+      }),
+      amount,
+    }))
+  }, [filteredPayments, from, to, period])
+
+  // ── Doctor Revenue ────────────────────────────────────────────────────────
+  const doctorRevenue = useMemo(() => {
+    return doctors
+      .filter((doc) => doctorFilter === "all" || doc.id === doctorFilter)
+      .map((doc) => {
+        const docPayments = filteredPayments.filter((p) => p.doctorId === doc.id)
+        const docInvoices = invoices.filter(
+          (inv) =>
+            inv.doctorId === doc.id &&
+            inv.status !== "voided" &&
+            inRange(inv.createdAt, from, to)
+        )
+        return {
+          doc,
+          invoiceCount: docInvoices.length,
+          totalBilled: docInvoices.reduce((s, i) => s + i.totalAmount, 0),
+          totalCollected: docPayments.reduce((s, p) => s + p.amount, 0),
+          outstanding: docInvoices.reduce((s, i) => s + i.balance, 0),
+        }
+      })
+      .filter((d) => d.invoiceCount > 0 || d.totalCollected > 0)
+      .sort((a, b) => b.totalCollected - a.totalCollected)
+  }, [doctors, invoices, filteredPayments, from, to, doctorFilter])
+
+  const doctorChartData = doctorRevenue.map((d) => ({
+    name: d.doc.name,
+    Billed: d.totalBilled,
+    Collected: d.totalCollected,
+    Outstanding: d.outstanding,
+  }))
+
+  // ── Aging ─────────────────────────────────────────────────────────────────
   const aging: Record<"0-7" | "8-30" | "31+", typeof unpaidInvoices> = {
     "0-7": [],
     "8-30": [],
@@ -72,21 +254,7 @@ export default function ReportsPage() {
     "31+": aging["31+"].reduce((s, i) => s + i.balance, 0),
   }
 
-  // ── Doctor Revenue ─────────────────────────────────────────
-  const doctorRevenue = doctors.map((doc) => {
-    const docInvoices = invoices.filter(
-      (inv) => inv.doctorId === doc.id && inv.status !== "voided"
-    )
-    return {
-      doc,
-      invoiceCount: docInvoices.length,
-      totalBilled: docInvoices.reduce((s, i) => s + i.totalAmount, 0),
-      totalCollected: docInvoices.reduce((s, i) => s + i.paidAmount, 0),
-      outstanding: docInvoices.reduce((s, i) => s + i.balance, 0),
-    }
-  })
-
-  // ── Patient Outstanding Balances ───────────────────────────
+  // ── Patient Balances ──────────────────────────────────────────────────────
   const patientBalances = patients
     .map((patient) => {
       const open = invoices.filter(
@@ -106,8 +274,92 @@ export default function ReportsPage() {
     .filter((x) => x.outstanding > 0)
     .sort((a, b) => b.outstanding - a.outstanding)
 
-  const totalOutstanding = unpaidInvoices.reduce((s, i) => s + i.balance, 0)
-  const totalRevenue = invoices.reduce((s, i) => s + i.paidAmount, 0)
+  // ── CSV downloads ─────────────────────────────────────────────────────────
+  const downloadPaymentsCSV = () =>
+    downloadCSV(
+      `payments-${from}-to-${to}.csv`,
+      ["Invoice ID", "Date", "Time", "Method", "Reference", "Collected By", "Amount (Rs)"],
+      filteredPayments.map((p) => [
+        p.invoiceId,
+        p.collectedAt.split("T")[0],
+        new Date(p.collectedAt).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        p.method,
+        p.reference || "",
+        p.collectedBy,
+        p.amount,
+      ])
+    )
+
+  const downloadStaffCSV = () =>
+    downloadCSV(
+      `staff-collections-${from}-to-${to}.csv`,
+      ["Staff Member", "Payments", "Amount (Rs)"],
+      byCollector.map((c) => [c.name, c.count, c.total])
+    )
+
+  const downloadDoctorCSV = () =>
+    downloadCSV(
+      `doctor-revenue-${from}-to-${to}.csv`,
+      ["Doctor", "Specialty", "Invoices", "Billed (Rs)", "Collected (Rs)", "Outstanding (Rs)", "Collection %"],
+      doctorRevenue.map((d) => {
+        const pct =
+          d.totalBilled > 0
+            ? Math.round((d.totalCollected / d.totalBilled) * 100)
+            : 0
+        return [
+          d.doc.name,
+          d.doc.specialty,
+          d.invoiceCount,
+          d.totalBilled,
+          d.totalCollected,
+          d.outstanding,
+          `${pct}%`,
+        ]
+      })
+    )
+
+  const downloadAgingCSV = () =>
+    downloadCSV(
+      `unpaid-aging-${TODAY}.csv`,
+      ["Invoice ID", "Patient", "Doctor", "Created", "Days Overdue", "Status", "Balance (Rs)"],
+      unpaidInvoices.map((inv) => {
+        const patient = getPatient(inv.patientId)
+        const doctor = getDoctor(inv.doctorId)
+        return [
+          inv.id,
+          patient?.name || "",
+          doctor?.name || "",
+          inv.createdAt,
+          daysBetween(inv.createdAt),
+          inv.status,
+          inv.balance,
+        ]
+      })
+    )
+
+  const downloadBalancesCSV = () =>
+    downloadCSV(
+      `patient-balances-${TODAY}.csv`,
+      ["Patient", "Phone", "Doctor", "Open Invoices", "Oldest Invoice", "Days Overdue", "Outstanding (Rs)"],
+      patientBalances.map(({ patient, outstanding, invoiceCount, oldestDate }) => {
+        const doctor = getDoctor(patient.assignedDoctorId)
+        const days = oldestDate ? daysBetween(oldestDate) : 0
+        return [
+          patient.name,
+          patient.phone,
+          doctor?.name || "",
+          invoiceCount,
+          oldestDate || "",
+          days,
+          outstanding,
+        ]
+      })
+    )
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <>
@@ -117,12 +369,100 @@ export default function ReportsPage() {
         breadcrumbs={[{ label: "Reports" }]}
       />
 
-      {/* Summary stat cards */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* ── Filter Bar ── */}
+      <div className="flex flex-wrap gap-3 items-end rounded-xl border bg-card p-4 shadow-sm mb-4">
+        {/* Period buttons */}
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs text-muted-foreground">Period</Label>
+          <div className="flex gap-1">
+            {(["today", "week", "month", "custom"] as const).map((p) => (
+              <Button
+                key={p}
+                size="sm"
+                variant={period === p ? "default" : "outline"}
+                onClick={() => setPeriod(p)}
+                className="text-xs"
+              >
+                {p === "today" ? "Today" : p === "week" ? "7 Days" : p === "month" ? "30 Days" : "Custom"}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Custom range inputs */}
+        {period === "custom" && (
+          <>
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs text-muted-foreground">From</Label>
+              <Input
+                type="date"
+                value={customFrom}
+                max={customTo}
+                onChange={(e) => setCustomFrom(e.target.value)}
+                className="h-9 text-sm w-36"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs text-muted-foreground">To</Label>
+              <Input
+                type="date"
+                value={customTo}
+                min={customFrom}
+                max={TODAY}
+                onChange={(e) => setCustomTo(e.target.value)}
+                className="h-9 text-sm w-36"
+              />
+            </div>
+          </>
+        )}
+
+        {/* Staff filter */}
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs text-muted-foreground">Staff</Label>
+          <Select value={staffFilter} onValueChange={setStaffFilter}>
+            <SelectTrigger className="h-9 w-44 text-sm">
+              <SelectValue placeholder="All Staff" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Staff</SelectItem>
+              {staffUsers.map((u) => (
+                <SelectItem key={u.name} value={u.name}>
+                  {u.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Doctor filter */}
+        <div className="flex flex-col gap-1">
+          <Label className="text-xs text-muted-foreground">Doctor</Label>
+          <Select value={doctorFilter} onValueChange={setDoctorFilter}>
+            <SelectTrigger className="h-9 w-44 text-sm">
+              <SelectValue placeholder="All Doctors" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Doctors</SelectItem>
+              {doctors.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  {d.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <span className="ml-auto text-xs text-muted-foreground self-end pb-1">
+          {periodLabel}
+        </span>
+      </div>
+
+      {/* ── Summary Cards ── */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
         <StatCard
-          title="Today's Collections"
-          value={`Rs. ${totalCollectedToday.toLocaleString()}`}
-          description={`${todayPayments.length} payment${todayPayments.length !== 1 ? "s" : ""} today`}
+          title={period === "today" ? "Today's Collections" : "Period Collections"}
+          value={`Rs. ${totalCollected.toLocaleString()}`}
+          description={`${filteredPayments.length} payment${filteredPayments.length !== 1 ? "s" : ""} in period`}
           icon={DollarSign}
         />
         <StatCard
@@ -145,26 +485,69 @@ export default function ReportsPage() {
         />
       </div>
 
-      <Tabs defaultValue="collections" className="mt-6">
+      <Tabs defaultValue="collections">
         <TabsList>
-          <TabsTrigger value="collections">Daily Collections</TabsTrigger>
+          <TabsTrigger value="collections">Collections</TabsTrigger>
           <TabsTrigger value="aging">Unpaid Aging</TabsTrigger>
           <TabsTrigger value="doctor-revenue">Doctor Revenue</TabsTrigger>
           <TabsTrigger value="outstanding">Patient Balances</TabsTrigger>
         </TabsList>
 
-        {/* ── Daily Collections ── */}
+        {/* ══════════════════════════════════════════════════════════
+            TAB 1 — Collections
+        ══════════════════════════════════════════════════════════ */}
         <TabsContent value="collections" className="mt-4 space-y-4">
-          <div className="grid gap-4 lg:grid-cols-2">
+
+          {/* Daily trend chart (hidden for "today") */}
+          {dailyChartData.length > 1 && (
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Collections by Staff</CardTitle>
-                <CardDescription>Payments collected today by each staff member</CardDescription>
+                <CardTitle className="text-base">Collections Trend</CardTitle>
+                <CardDescription>Daily totals — {from} → {to}</CardDescription>
               </CardHeader>
               <CardContent>
-                {Object.keys(byCollector).length === 0 ? (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart
+                    data={dailyChartData}
+                    margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} />
+                    <YAxis
+                      tickFormatter={(v) => `Rs.${(v / 1000).toFixed(0)}k`}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <Tooltip
+                      formatter={(v: number) => [`Rs. ${v.toLocaleString()}`, "Collected"]}
+                    />
+                    <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            {/* By Staff */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-3">
+                <div>
+                  <CardTitle className="text-base">Collections by Staff</CardTitle>
+                  <CardDescription>{periodLabel}</CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={downloadStaffCSV}
+                  disabled={byCollector.length === 0}
+                >
+                  <Download className="h-3.5 w-3.5 mr-1" /> CSV
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {byCollector.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
-                    No collections recorded today.
+                    No collections in period.
                   </p>
                 ) : (
                   <Table>
@@ -176,7 +559,7 @@ export default function ReportsPage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {Object.values(byCollector).map((c) => (
+                      {byCollector.map((c) => (
                         <TableRow key={c.name}>
                           <TableCell className="font-medium">{c.name}</TableCell>
                           <TableCell className="text-center">{c.count}</TableCell>
@@ -187,9 +570,9 @@ export default function ReportsPage() {
                       ))}
                       <TableRow className="border-t-2 font-semibold bg-muted/30">
                         <TableCell>Total</TableCell>
-                        <TableCell className="text-center">{todayPayments.length}</TableCell>
+                        <TableCell className="text-center">{filteredPayments.length}</TableCell>
                         <TableCell className="text-right">
-                          Rs. {totalCollectedToday.toLocaleString()}
+                          Rs. {totalCollected.toLocaleString()}
                         </TableCell>
                       </TableRow>
                     </TableBody>
@@ -198,62 +581,76 @@ export default function ReportsPage() {
               </CardContent>
             </Card>
 
+            {/* Payment Methods Pie */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Collections by Doctor</CardTitle>
-                <CardDescription>Payments collected today per doctor</CardDescription>
+                <CardTitle className="text-base">Payment Methods</CardTitle>
+                <CardDescription>Breakdown by method — {periodLabel}</CardDescription>
               </CardHeader>
               <CardContent>
-                {Object.keys(byDoctorToday).length === 0 ? (
+                {byMethod.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
-                    No collections recorded today.
+                    No payments in period.
                   </p>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Doctor</TableHead>
-                        <TableHead className="text-center">Payments</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {Object.values(byDoctorToday).map((d) => {
-                        const doctor = getDoctor(d.doctorId)
-                        return (
-                          <TableRow key={d.doctorId}>
-                            <TableCell className="font-medium">
-                              {doctor?.name ?? d.doctorId}
-                            </TableCell>
-                            <TableCell className="text-center">{d.count}</TableCell>
-                            <TableCell className="text-right font-semibold">
-                              Rs. {d.total.toLocaleString()}
-                            </TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
+                  <ResponsiveContainer width="100%" height={210}>
+                    <PieChart>
+                      <Pie
+                        data={byMethod}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={52}
+                        outerRadius={80}
+                        paddingAngle={3}
+                      >
+                        {byMethod.map((_, i) => (
+                          <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(v: number) => `Rs. ${v.toLocaleString()}`}
+                      />
+                      <Legend
+                        formatter={(value) => (
+                          <span className="capitalize text-xs">{value}</span>
+                        )}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
                 )}
               </CardContent>
             </Card>
           </div>
 
+          {/* Payment detail table */}
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Payment Details</CardTitle>
-              <CardDescription>All individual payments received on {TODAY} (PKT)</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <div>
+                <CardTitle className="text-base">Payment Details</CardTitle>
+                <CardDescription>All individual payments — {periodLabel}</CardDescription>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={downloadPaymentsCSV}
+                disabled={filteredPayments.length === 0}
+              >
+                <Download className="h-3.5 w-3.5 mr-1" /> CSV
+              </Button>
             </CardHeader>
             <CardContent>
-              {todayPayments.length === 0 ? (
+              {filteredPayments.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">
-                  No payments recorded today.
+                  No payments in selected period.
                 </p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
                       <TableHead>Invoice</TableHead>
+                      <TableHead>Date</TableHead>
                       <TableHead>Time</TableHead>
                       <TableHead>Method</TableHead>
                       <TableHead>Reference</TableHead>
@@ -262,15 +659,18 @@ export default function ReportsPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {todayPayments.map((p) => (
+                    {filteredPayments.map((p) => (
                       <TableRow key={p.id}>
                         <TableCell>
                           <Link
                             href={`/billing/${p.invoiceId}`}
                             className="text-primary hover:underline font-medium"
                           >
-                            #{p.invoiceId}
+                            #{p.invoiceId.slice(-6)}
                           </Link>
+                        </TableCell>
+                        <TableCell className="text-muted-foreground text-sm">
+                          {p.collectedAt.split("T")[0]}
                         </TableCell>
                         <TableCell className="text-muted-foreground text-sm">
                           {new Date(p.collectedAt).toLocaleTimeString([], {
@@ -299,8 +699,25 @@ export default function ReportsPage() {
           </Card>
         </TabsContent>
 
-        {/* ── Unpaid Aging ── */}
+        {/* ══════════════════════════════════════════════════════════
+            TAB 2 — Unpaid Aging
+        ══════════════════════════════════════════════════════════ */}
         <TabsContent value="aging" className="mt-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              Point-in-time view — not filtered by date period.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={downloadAgingCSV}
+              disabled={unpaidInvoices.length === 0}
+            >
+              <Download className="h-3.5 w-3.5 mr-1" /> Download All (CSV)
+            </Button>
+          </div>
+
+          {/* Aging summary cards */}
           <div className="grid gap-4 sm:grid-cols-3">
             <Card className="border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-900">
               <CardHeader className="pb-2">
@@ -349,6 +766,45 @@ export default function ReportsPage() {
             </Card>
           </div>
 
+          {/* Aging stacked bar chart */}
+          {unpaidInvoices.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Aging Breakdown</CardTitle>
+                <CardDescription>Outstanding balance by age bucket</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={130}>
+                  <BarChart
+                    data={[
+                      {
+                        name: "Outstanding",
+                        "0-7 Days": agingTotals["0-7"],
+                        "8-30 Days": agingTotals["8-30"],
+                        "31+ Days": agingTotals["31+"],
+                      },
+                    ]}
+                    layout="vertical"
+                    margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis
+                      type="number"
+                      tickFormatter={(v) => `Rs.${(v / 1000).toFixed(0)}k`}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={80} />
+                    <Tooltip formatter={(v: number) => `Rs. ${v.toLocaleString()}`} />
+                    <Legend />
+                    <Bar dataKey="0-7 Days" fill="#10b981" stackId="a" />
+                    <Bar dataKey="8-30 Days" fill="#f59e0b" stackId="a" />
+                    <Bar dataKey="31+ Days" fill="#ef4444" stackId="a" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
           {(["0-7", "8-30", "31+"] as const).map((bucket) =>
             aging[bucket].length > 0 ? (
               <Card key={bucket}>
@@ -362,8 +818,8 @@ export default function ReportsPage() {
                     Overdue
                   </CardTitle>
                   <CardDescription>
-                    {aging[bucket].length} invoice{aging[bucket].length !== 1 ? "s" : ""} —{" "}
-                    Rs. {agingTotals[bucket].toLocaleString()} outstanding
+                    {aging[bucket].length} invoice{aging[bucket].length !== 1 ? "s" : ""} — Rs.{" "}
+                    {agingTotals[bucket].toLocaleString()} outstanding
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -391,7 +847,7 @@ export default function ReportsPage() {
                                 href={`/billing/${inv.id}`}
                                 className="text-primary hover:underline font-medium"
                               >
-                                #{inv.id}
+                                #{inv.id.slice(-6)}
                               </Link>
                             </TableCell>
                             <TableCell>
@@ -439,99 +895,168 @@ export default function ReportsPage() {
           )}
         </TabsContent>
 
-        {/* ── Doctor Revenue ── */}
-        <TabsContent value="doctor-revenue" className="mt-4">
+        {/* ══════════════════════════════════════════════════════════
+            TAB 3 — Doctor Revenue
+        ══════════════════════════════════════════════════════════ */}
+        <TabsContent value="doctor-revenue" className="mt-4 space-y-4">
+
+          {/* Doctor revenue grouped bar chart */}
+          {doctorChartData.length > 0 && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Doctor Revenue Chart</CardTitle>
+                <CardDescription>Billed vs. Collected vs. Outstanding — {periodLabel}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart
+                    data={doctorChartData}
+                    margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis
+                      tickFormatter={(v) => `Rs.${(v / 1000).toFixed(0)}k`}
+                      tick={{ fontSize: 11 }}
+                    />
+                    <Tooltip formatter={(v: number) => `Rs. ${v.toLocaleString()}`} />
+                    <Legend />
+                    <Bar dataKey="Billed" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Collected" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Outstanding" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Doctor-wise Revenue Summary</CardTitle>
-              <CardDescription>Billed vs. collected breakdown per doctor</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <div>
+                <CardTitle className="text-base">Doctor-wise Revenue</CardTitle>
+                <CardDescription>Billed vs. collected — {periodLabel}</CardDescription>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={downloadDoctorCSV}
+                disabled={doctorRevenue.length === 0}
+              >
+                <Download className="h-3.5 w-3.5 mr-1" /> CSV
+              </Button>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Doctor</TableHead>
-                    <TableHead>Specialty</TableHead>
-                    <TableHead className="text-center">Invoices</TableHead>
-                    <TableHead className="text-right">Total Billed</TableHead>
-                    <TableHead className="text-right">Collected</TableHead>
-                    <TableHead className="text-right">Outstanding</TableHead>
-                    <TableHead className="text-right">Collection %</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {doctorRevenue.map(
-                    ({ doc, invoiceCount, totalBilled, totalCollected, outstanding }) => {
-                      const pct =
-                        totalBilled > 0
-                          ? Math.round((totalCollected / totalBilled) * 100)
-                          : 0
-                      return (
-                        <TableRow key={doc.id}>
-                          <TableCell className="font-medium">{doc.name}</TableCell>
-                          <TableCell className="text-muted-foreground text-sm">
-                            {doc.specialty}
-                          </TableCell>
-                          <TableCell className="text-center">{invoiceCount}</TableCell>
-                          <TableCell className="text-right">
-                            Rs. {totalBilled.toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-right font-medium text-emerald-700">
-                            Rs. {totalCollected.toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-right font-medium text-red-600">
-                            Rs. {outstanding.toLocaleString()}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Badge
-                              variant="outline"
-                              className={
-                                pct >= 80
-                                  ? "border-emerald-300 text-emerald-700"
-                                  : pct >= 50
-                                  ? "border-amber-300 text-amber-700"
-                                  : "border-red-300 text-red-700"
-                              }
-                            >
-                              {pct}%
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    }
-                  )}
-                  <TableRow className="border-t-2 font-semibold bg-muted/30">
-                    <TableCell colSpan={2}>Total</TableCell>
-                    <TableCell className="text-center">
-                      {doctorRevenue.reduce((s, d) => s + d.invoiceCount, 0)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      Rs. {doctorRevenue.reduce((s, d) => s + d.totalBilled, 0).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right text-emerald-700">
-                      Rs. {doctorRevenue.reduce((s, d) => s + d.totalCollected, 0).toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right text-red-600">
-                      Rs. {doctorRevenue.reduce((s, d) => s + d.outstanding, 0).toLocaleString()}
-                    </TableCell>
-                    <TableCell />
-                  </TableRow>
-                </TableBody>
-              </Table>
+              {doctorRevenue.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No data for selected period or doctor.
+                </p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Doctor</TableHead>
+                      <TableHead>Specialty</TableHead>
+                      <TableHead className="text-center">Invoices</TableHead>
+                      <TableHead className="text-right">Total Billed</TableHead>
+                      <TableHead className="text-right">Collected</TableHead>
+                      <TableHead className="text-right">Outstanding</TableHead>
+                      <TableHead className="text-right">Collection %</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {doctorRevenue.map(
+                      ({ doc, invoiceCount, totalBilled, totalCollected, outstanding }) => {
+                        const pct =
+                          totalBilled > 0
+                            ? Math.round((totalCollected / totalBilled) * 100)
+                            : 0
+                        return (
+                          <TableRow key={doc.id}>
+                            <TableCell className="font-medium">{doc.name}</TableCell>
+                            <TableCell className="text-muted-foreground text-sm">
+                              {doc.specialty}
+                            </TableCell>
+                            <TableCell className="text-center">{invoiceCount}</TableCell>
+                            <TableCell className="text-right">
+                              Rs. {totalBilled.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-right font-medium text-emerald-700">
+                              Rs. {totalCollected.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-right font-medium text-red-600">
+                              Rs. {outstanding.toLocaleString()}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Badge
+                                variant="outline"
+                                className={
+                                  pct >= 80
+                                    ? "border-emerald-300 text-emerald-700"
+                                    : pct >= 50
+                                    ? "border-amber-300 text-amber-700"
+                                    : "border-red-300 text-red-700"
+                                }
+                              >
+                                {pct}%
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        )
+                      }
+                    )}
+                    <TableRow className="border-t-2 font-semibold bg-muted/30">
+                      <TableCell colSpan={2}>Total</TableCell>
+                      <TableCell className="text-center">
+                        {doctorRevenue.reduce((s, d) => s + d.invoiceCount, 0)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        Rs.{" "}
+                        {doctorRevenue
+                          .reduce((s, d) => s + d.totalBilled, 0)
+                          .toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right text-emerald-700">
+                        Rs.{" "}
+                        {doctorRevenue
+                          .reduce((s, d) => s + d.totalCollected, 0)
+                          .toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right text-red-600">
+                        Rs.{" "}
+                        {doctorRevenue
+                          .reduce((s, d) => s + d.outstanding, 0)
+                          .toLocaleString()}
+                      </TableCell>
+                      <TableCell />
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
-        {/* ── Patient Outstanding Balances ── */}
+        {/* ══════════════════════════════════════════════════════════
+            TAB 4 — Patient Balances
+        ══════════════════════════════════════════════════════════ */}
         <TabsContent value="outstanding" className="mt-4">
           <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Patient Outstanding Balances</CardTitle>
-              <CardDescription>
-                {patientBalances.length} patient
-                {patientBalances.length !== 1 ? "s" : ""} with unpaid invoices —{" "}
-                Rs. {totalOutstanding.toLocaleString()} total outstanding
-              </CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between pb-3">
+              <div>
+                <CardTitle className="text-base">Patient Outstanding Balances</CardTitle>
+                <CardDescription>
+                  {patientBalances.length} patient{patientBalances.length !== 1 ? "s" : ""} with
+                  unpaid invoices — Rs. {totalOutstanding.toLocaleString()} total outstanding
+                </CardDescription>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={downloadBalancesCSV}
+                disabled={patientBalances.length === 0}
+              >
+                <Download className="h-3.5 w-3.5 mr-1" /> CSV
+              </Button>
             </CardHeader>
             <CardContent>
               {patientBalances.length === 0 ? (
