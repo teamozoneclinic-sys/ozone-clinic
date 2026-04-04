@@ -665,81 +665,7 @@ export default function SettingsPage() {
 
         {/* ── Appointment Defaults ── */}
         <TabsContent value="appointments">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Booking Defaults</CardTitle>
-                <CardDescription>
-                  Default values applied when creating new appointments.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-5">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="default-duration">Default Duration (minutes)</Label>
-                  <Input
-                    id="default-duration"
-                    type="number"
-                    value={apptSettings.defaultDuration}
-                    onChange={(e) =>
-                      setApptSettings({ ...apptSettings, defaultDuration: Number(e.target.value) })
-                    }
-                    min={5}
-                    step={5}
-                    disabled={!canEdit}
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="default-charge">Default Consultation Charge (Rs.)</Label>
-                  <Input
-                    id="default-charge"
-                    type="number"
-                    value={apptSettings.defaultCharge}
-                    onChange={(e) =>
-                      setApptSettings({ ...apptSettings, defaultCharge: Number(e.target.value) })
-                    }
-                    min={0}
-                    step={5}
-                    disabled={!canEdit}
-                  />
-                </div>
-                <Separator />
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="hours-start">Working Hours Start</Label>
-                    <Input
-                      id="hours-start"
-                      type="time"
-                      value={apptSettings.workingHoursStart}
-                      onChange={(e) =>
-                        setApptSettings({ ...apptSettings, workingHoursStart: e.target.value })
-                      }
-                      disabled={!canEdit}
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="hours-end">Working Hours End</Label>
-                    <Input
-                      id="hours-end"
-                      type="time"
-                      value={apptSettings.workingHoursEnd}
-                      onChange={(e) =>
-                        setApptSettings({ ...apptSettings, workingHoursEnd: e.target.value })
-                      }
-                      disabled={!canEdit}
-                    />
-                  </div>
-                </div>
-                {canEdit && (
-                  <div className="flex justify-end">
-                    <Button onClick={handleSaveAppt} size="sm">
-                      <Save className="mr-1.5 h-4 w-4" />
-                      Save Defaults
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
+          <div className="max-w-lg">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Working Days</CardTitle>
@@ -784,6 +710,7 @@ export default function SettingsPage() {
           </div>
         </TabsContent>
         {/* ── User Management ── */}
+
         <TabsContent value="users">
           <UserManagementSection />
         </TabsContent>
@@ -1221,9 +1148,8 @@ function CreateUserModal({
       toast.error("Please fill in all required fields.")
       return
     }
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!emailRegex.test(email)) {
-      toast.error("Please enter a valid email address.")
+    if (!email.toLowerCase().endsWith("@ozonehospital.com")) {
+      toast.error("Email must end with @ozonehospital.com")
       return
     }
     if (password.length < 6) {
@@ -1279,7 +1205,7 @@ function CreateUserModal({
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="user@clinic.com"
+                placeholder="user@ozonehospital.com"
               />
             </div>
           </div>

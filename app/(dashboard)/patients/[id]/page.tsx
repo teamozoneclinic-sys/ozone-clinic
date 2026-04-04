@@ -1,6 +1,6 @@
 "use client"
 
-import { use } from "react"
+import { use, useRef, useState } from "react"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { StatusBadge } from "@/components/status-badge"
@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/table"
 import {
   CalendarDays,
-  Receipt,
   Stethoscope,
   FileText,
   Phone,
@@ -27,18 +26,19 @@ import {
   Droplets,
   User,
   AlertTriangle,
+  Upload,
+  Eye,
+  Download,
+  Trash2,
+  ClipboardList,
 } from "lucide-react"
 import Link from "next/link"
+import type { PatientDocument } from "@/lib/types"
+import { toast } from "sonner"
 
 export default function PatientProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const {
-    getPatient,
-    getDoctor,
-    getPatientAppointments,
-    getPatientInvoices,
-    getPatientTreatments,
-  } = useStore()
+  const { getPatient } = useStore()
 
   const patient = getPatient(id)
 
@@ -65,19 +65,94 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
     )
   }
 
+  return <PatientProfileContent patientId={id} />
+}
+
+// ─── Inner component (has hooks that depend on patient existing) ──────────────
+
+function PatientProfileContent({ patientId }: { patientId: string }) {
+  const {
+    getPatient,
+    getDoctor,
+    getPatientAppointments,
+    getPatientInvoices,
+    getPatientTreatments,
+  } = useStore()
+
+  const patient = getPatient(patientId)!
   const doctor = getDoctor(patient.assignedDoctorId)
   const appointments = getPatientAppointments(patient.id)
   const invoices = getPatientInvoices(patient.id)
-  const treatments = getPatientTreatments(patient.id)
+  const treatments = getPatientTreatments(patient.id).sort((a, b) =>
+    b.date.localeCompare(a.date)
+  )
 
   const upcomingAppointments = appointments
     .filter((a) => a.status === "scheduled" || a.status === "checked-in")
     .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
   const pastAppointments = appointments
-    .filter((a) => a.status === "completed" || a.status === "cancelled" || a.status === "no-show")
+    .filter(
+      (a) => a.status === "completed" || a.status === "cancelled" || a.status === "no-show"
+    )
     .sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`))
 
   const unpaidTotal = invoices.reduce((sum, inv) => sum + inv.balance, 0)
+
+  // ── Documents local state ─────────────────────────────────────────────────
+  const [documents, setDocuments] = useState<PatientDocument[]>(patient.documents ?? [])
+  const [uploading, setUploading] = useState(false)
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File too large. Maximum size is 10 MB.")
+      return
+    }
+    setUploading(true)
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve((reader.result as string).split(",")[1])
+        reader.onerror = reject
+        reader.readAsDataURL(file)
+      })
+      const res = await fetch(`/api/patients/${patient.id}/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, contentType: file.type, data: base64 }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Upload failed")
+      setDocuments(data.data.documents ?? [])
+      toast.success(`"${file.name}" uploaded.`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed")
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+  const handleDeleteDoc = async (docId: string, docName: string) => {
+    setDeletingDocId(docId)
+    try {
+      const res = await fetch(
+        `/api/patients/${patient.id}/documents?docId=${docId}`,
+        { method: "DELETE" }
+      )
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || "Delete failed")
+      setDocuments(data.data.documents ?? [])
+      toast.success(`"${docName}" removed.`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Delete failed")
+    } finally {
+      setDeletingDocId(null)
+    }
+  }
 
   return (
     <>
@@ -117,11 +192,18 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
                 Outstanding Balance: Rs. {unpaidTotal.toLocaleString()}
               </p>
               <p className="text-xs text-amber-700">
-                {invoices.filter((i) => i.status === "unpaid" || i.status === "partially-paid").length} unpaid invoice(s)
+                {invoices.filter((i) => i.status === "unpaid" || i.status === "partially-paid")
+                  .length}{" "}
+                unpaid invoice(s)
               </p>
             </div>
-            <Button variant="outline" size="sm" className="border-amber-300 text-amber-800 hover:bg-amber-100">
-              Collect Payment
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-amber-300 text-amber-800 hover:bg-amber-100"
+              asChild
+            >
+              <Link href={`/billing`}>Collect Payment</Link>
             </Button>
           </CardContent>
         </Card>
@@ -136,7 +218,7 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
           <TabsTrigger value="billing">Billing</TabsTrigger>
         </TabsList>
 
-        {/* Overview Tab */}
+        {/* ── Overview Tab ── */}
         <TabsContent value="overview">
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
@@ -149,10 +231,16 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
                     <User className="h-4 w-4 text-muted-foreground" />
                     <div>
                       <p className="text-sm text-muted-foreground">Gender / Age / DOB</p>
-                      <p className="text-sm font-medium capitalize">{patient.gender}, {patient.age} years old</p>
+                      <p className="text-sm font-medium capitalize">
+                        {patient.gender}, {patient.age} years old
+                      </p>
                       {patient.dateOfBirth && (
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {new Date(patient.dateOfBirth).toLocaleDateString("en-PK", { day: "2-digit", month: "short", year: "numeric" })}
+                          {new Date(patient.dateOfBirth).toLocaleDateString("en-PK", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })}
                         </p>
                       )}
                     </div>
@@ -224,7 +312,9 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
                 <CardContent className="flex flex-col gap-3">
                   <div className="flex flex-wrap gap-1">
                     {patient.tags.map((tag) => (
-                      <Badge key={tag} variant="secondary">{tag}</Badge>
+                      <Badge key={tag} variant="secondary">
+                        {tag}
+                      </Badge>
                     ))}
                     {patient.tags.length === 0 && (
                       <p className="text-sm text-muted-foreground">No tags</p>
@@ -241,52 +331,161 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
           </div>
         </TabsContent>
 
-        {/* Medical History Tab */}
+        {/* ── Medical History Tab ── */}
         <TabsContent value="history">
           <div className="grid gap-6 lg:grid-cols-2">
+
+            {/* History Entries — real treatments */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">History Entries</CardTitle>
-                <CardDescription>{patient.medicalHistory.length} entries</CardDescription>
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-primary" />
+                  <div>
+                    <CardTitle className="text-base">Treatment History</CardTitle>
+                    <CardDescription>
+                      {treatments.length} treatment record{treatments.length !== 1 ? "s" : ""} at
+                      this hospital
+                    </CardDescription>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                {patient.medicalHistory.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-muted-foreground">No medical history entries.</p>
+                {treatments.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground">
+                    No treatment records found.
+                  </p>
                 ) : (
-                  <div className="flex flex-col gap-4">
-                    {patient.medicalHistory.map((entry) => (
-                      <div key={entry.id} className="rounded-lg border p-3">
-                        <div className="flex items-center justify-between">
-                          <Badge variant="outline">{entry.type}</Badge>
-                          <span className="text-xs text-muted-foreground">{entry.date}</span>
-                        </div>
-                        <p className="mt-2 text-sm text-foreground">{entry.description}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">Added by {entry.addedBy}</p>
-                      </div>
-                    ))}
+                  <div className="flex flex-col gap-3">
+                    {treatments.map((tr) => {
+                      const treatingDoctor = getDoctor(tr.doctorId)
+                      return (
+                        <Link
+                          key={tr.id}
+                          href={`/treatments/${tr.id}`}
+                          className="flex flex-col gap-2 rounded-lg border border-border/70 p-3 hover:bg-accent/30 transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-semibold text-foreground">
+                              {tr.diagnosis || "—"}
+                            </span>
+                            <StatusBadge status={tr.status} />
+                          </div>
+                          {tr.complaint && (
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {tr.complaint}
+                            </p>
+                          )}
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Stethoscope className="h-3 w-3" />
+                              {treatingDoctor?.name ?? "—"}
+                            </span>
+                            <span>{tr.date}</span>
+                          </div>
+                          {tr.followUpDate && (
+                            <p className="text-xs text-amber-600">
+                              Follow-up: {tr.followUpDate}
+                            </p>
+                          )}
+                        </Link>
+                      )
+                    })}
                   </div>
                 )}
               </CardContent>
             </Card>
 
+            {/* Documents */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Documents</CardTitle>
-                <CardDescription>{patient.documents.length} files</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-base">Documents & Reports</CardTitle>
+                    <CardDescription>
+                      {documents.length} file{documents.length !== 1 ? "s" : ""} attached
+                    </CardDescription>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    <Upload className="h-3.5 w-3.5 mr-1" />
+                    {uploading ? "Uploading…" : "Attach File"}
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+                </div>
               </CardHeader>
               <CardContent>
-                {patient.documents.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-muted-foreground">No documents uploaded.</p>
+                {documents.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 gap-3 text-muted-foreground border-2 border-dashed rounded-lg">
+                    <FileText className="h-8 w-8 opacity-40" />
+                    <p className="text-sm">No documents uploaded yet.</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                    >
+                      <Upload className="h-3.5 w-3.5 mr-1" />
+                      Upload First Document
+                    </Button>
+                  </div>
                 ) : (
-                  <div className="flex flex-col gap-3">
-                    {patient.documents.map((doc) => (
-                      <div key={doc.id} className="flex items-center gap-3 rounded-lg border p-3">
-                        <FileText className="h-5 w-5 text-muted-foreground" />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{doc.name}</p>
+                  <div className="flex flex-col gap-2">
+                    {documents.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="flex items-center gap-3 rounded-lg border border-border/70 px-3 py-2.5"
+                      >
+                        <FileText className="h-5 w-5 shrink-0 text-primary/60" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{doc.name}</p>
                           <p className="text-xs text-muted-foreground">
-                            Uploaded {doc.uploadedAt} by {doc.uploadedBy}
+                            {doc.uploadedAt} · {doc.uploadedBy}
                           </p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            title="View"
+                            onClick={() => window.open(doc.url, "_blank")}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            title="Download"
+                            onClick={() => {
+                              const a = document.createElement("a")
+                              a.href = `${doc.url}?download=1`
+                              a.download = doc.name
+                              a.click()
+                            }}
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            title="Delete"
+                            disabled={deletingDocId === doc.id}
+                            onClick={() => handleDeleteDoc(doc.id, doc.name)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -297,7 +496,7 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
           </div>
         </TabsContent>
 
-        {/* Appointments Tab */}
+        {/* ── Appointments Tab ── */}
         <TabsContent value="appointments">
           <div className="flex flex-col gap-6">
             <Card>
@@ -327,8 +526,10 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
                         <TableRow key={apt.id}>
                           <TableCell>{apt.date}</TableCell>
                           <TableCell>{apt.time}</TableCell>
-                          <TableCell>{apt.type}</TableCell>
-                          <TableCell><StatusBadge status={apt.status} /></TableCell>
+                          <TableCell className="capitalize">{apt.type}</TableCell>
+                          <TableCell>
+                            <StatusBadge status={apt.status} />
+                          </TableCell>
                         </TableRow>
                       ))
                     )}
@@ -364,8 +565,10 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
                         <TableRow key={apt.id}>
                           <TableCell>{apt.date}</TableCell>
                           <TableCell>{apt.time}</TableCell>
-                          <TableCell>{apt.type}</TableCell>
-                          <TableCell><StatusBadge status={apt.status} /></TableCell>
+                          <TableCell className="capitalize">{apt.type}</TableCell>
+                          <TableCell>
+                            <StatusBadge status={apt.status} />
+                          </TableCell>
                         </TableRow>
                       ))
                     )}
@@ -376,7 +579,7 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
           </div>
         </TabsContent>
 
-        {/* Treatments Tab */}
+        {/* ── Treatments Tab ── */}
         <TabsContent value="treatments">
           <Card>
             <CardHeader>
@@ -390,6 +593,7 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
                     <TableHead>Date</TableHead>
                     <TableHead>Diagnosis</TableHead>
                     <TableHead className="hidden md:table-cell">Complaint</TableHead>
+                    <TableHead>Doctor</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="hidden sm:table-cell">Follow-up</TableHead>
                   </TableRow>
@@ -397,28 +601,36 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
                 <TableBody>
                   {treatments.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="h-16 text-center text-muted-foreground">
+                      <TableCell colSpan={6} className="h-16 text-center text-muted-foreground">
                         No treatment records.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    treatments.map((tr) => (
-                      <TableRow key={tr.id} className="cursor-pointer hover:bg-accent/40">
-                        <TableCell>{tr.date}</TableCell>
-                        <TableCell className="font-medium">
-                          <Link href={`/treatments/${tr.id}`} className="hover:text-primary">
-                            {tr.diagnosis}
-                          </Link>
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell text-muted-foreground max-w-[200px] truncate">
-                          {tr.complaint}
-                        </TableCell>
-                        <TableCell><StatusBadge status={tr.status} /></TableCell>
-                        <TableCell className="hidden sm:table-cell text-muted-foreground">
-                          {tr.followUpDate ?? "-"}
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    treatments.map((tr) => {
+                      const treatingDoctor = getDoctor(tr.doctorId)
+                      return (
+                        <TableRow key={tr.id} className="cursor-pointer hover:bg-accent/40">
+                          <TableCell>{tr.date}</TableCell>
+                          <TableCell className="font-medium">
+                            <Link href={`/treatments/${tr.id}`} className="hover:text-primary">
+                              {tr.diagnosis}
+                            </Link>
+                          </TableCell>
+                          <TableCell className="hidden md:table-cell text-muted-foreground max-w-[180px] truncate">
+                            {tr.complaint}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm">
+                            {treatingDoctor?.name ?? "—"}
+                          </TableCell>
+                          <TableCell>
+                            <StatusBadge status={tr.status} />
+                          </TableCell>
+                          <TableCell className="hidden sm:table-cell text-muted-foreground">
+                            {tr.followUpDate ?? "—"}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -426,12 +638,14 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
           </Card>
         </TabsContent>
 
-        {/* Billing Tab */}
+        {/* ── Billing Tab ── */}
         <TabsContent value="billing">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Invoices</CardTitle>
-              <CardDescription>{invoices.length} invoices - Rs. {unpaidTotal} outstanding</CardDescription>
+              <CardDescription>
+                {invoices.length} invoices — Rs. {unpaidTotal.toLocaleString()} outstanding
+              </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -456,17 +670,30 @@ export default function PatientProfilePage({ params }: { params: Promise<{ id: s
                     invoices.map((inv) => (
                       <TableRow key={inv.id} className="cursor-pointer hover:bg-accent/40">
                         <TableCell>
-                          <Link href={`/billing/${inv.id}`} className="font-medium hover:text-primary">
-                            #{inv.id}
+                          <Link
+                            href={`/billing/${inv.id}`}
+                            className="font-medium hover:text-primary"
+                          >
+                            #{inv.id.slice(-6)}
                           </Link>
                         </TableCell>
                         <TableCell className="text-muted-foreground">{inv.createdAt}</TableCell>
-                        <TableCell>Rs. {inv.totalAmount}</TableCell>
-                        <TableCell className="text-emerald-600">Rs. {inv.paidAmount}</TableCell>
-                        <TableCell className={inv.balance > 0 ? "text-red-600 font-medium" : "text-muted-foreground"}>
-                          Rs. {inv.balance}
+                        <TableCell>Rs. {inv.totalAmount.toLocaleString()}</TableCell>
+                        <TableCell className="text-emerald-600">
+                          Rs. {inv.paidAmount.toLocaleString()}
                         </TableCell>
-                        <TableCell><StatusBadge status={inv.status} /></TableCell>
+                        <TableCell
+                          className={
+                            inv.balance > 0
+                              ? "text-red-600 font-medium"
+                              : "text-muted-foreground"
+                          }
+                        >
+                          Rs. {inv.balance.toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          <StatusBadge status={inv.status} />
+                        </TableCell>
                       </TableRow>
                     ))
                   )}
