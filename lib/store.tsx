@@ -4,6 +4,7 @@ import React, {
   createContext,
   useContext,
   useState,
+  useRef,
   useCallback,
   useEffect,
   type ReactNode,
@@ -106,6 +107,9 @@ interface StoreState {
   // Clinic settings
   clinicSettings: ClinicInfo
   updateClinicSettings: (data: Partial<ClinicInfo>) => Promise<void>
+
+  // WA requests
+  pendingRequestsCount: number
 }
 
 const StoreContext = createContext<StoreState | undefined>(undefined)
@@ -121,6 +125,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [testCatalog, setTestCatalog] = useState<TestCatalogItem[]>([])
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
   const [clinicSettings, setClinicSettings] = useState<ClinicInfo>(DEFAULT_CLINIC_INFO)
+  const [pendingRequestsCount, setPendingRequestsCount] = useState(0)
+  const prevRequestsCountRef = useRef(-1) // -1 = initial load, skip notification
 
   // ── Fetch all data ────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -422,6 +428,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setClinicSettings(res.data)
   }, [])
 
+  // ── WA appointment requests polling ───────────────────────────────────
+  const pollRequestsCount = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ data: Array<{ status: string }> }>("/api/appointment-requests")
+      const count = res.data.filter((r) => r.status === "pending").length
+      if (prevRequestsCountRef.current >= 0 && count > prevRequestsCountRef.current) {
+        const diff = count - prevRequestsCountRef.current
+        if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+          new Notification(`New WA Request${diff > 1 ? "s" : ""}`, {
+            body: `${diff} new appointment request${diff > 1 ? "s" : ""} pending from WhatsApp`,
+            icon: "/favicon.ico",
+          })
+        }
+      }
+      prevRequestsCountRef.current = count
+      setPendingRequestsCount(count)
+    } catch {
+      // silent — background poll must not disrupt UI
+    }
+  }, [])
+
+  useEffect(() => {
+    // Request browser notification permission on first load
+    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission()
+    }
+    pollRequestsCount()
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") pollRequestsCount()
+    }, 30_000)
+    return () => clearInterval(timer)
+  }, [pollRequestsCount])
+
+  // Update document title with pending count
+  useEffect(() => {
+    if (typeof document === "undefined") return
+    const base = clinicSettings?.name || "Clinic ERP"
+    document.title = pendingRequestsCount > 0 ? `(${pendingRequestsCount}) ${base}` : base
+  }, [pendingRequestsCount, clinicSettings?.name])
+
   // ── Helpers ───────────────────────────────────────────────────────────
 
   const getPatient = useCallback((id: string) => patients.find((p) => p.id === id), [patients])
@@ -520,6 +566,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         getTreatmentByAppointment,
         clinicSettings,
         updateClinicSettings,
+        pendingRequestsCount,
       }}
     >
       {children}

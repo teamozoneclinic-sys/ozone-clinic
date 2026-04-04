@@ -65,11 +65,13 @@ function NavGroup({
   items,
   pathname,
   hasPermission,
+  badges,
 }: {
   label: string
   items: NavItem[]
   pathname: string
   hasPermission: (p: Permission) => boolean
+  badges?: Record<string, number>
 }) {
   const filteredItems = items.filter(
     (item) => !item.permission || hasPermission(item.permission)
@@ -86,12 +88,18 @@ function NavGroup({
               item.href === "/"
                 ? pathname === "/"
                 : pathname.startsWith(item.href)
+            const badge = badges?.[item.href]
             return (
               <SidebarMenuItem key={item.href}>
                 <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
                   <Link href={item.href}>
                     <item.icon />
                     <span>{item.title}</span>
+                    {badge != null && badge > 0 && (
+                      <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white leading-none">
+                        {badge > 99 ? "99+" : badge}
+                      </span>
+                    )}
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -105,7 +113,7 @@ function NavGroup({
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { hasPermission, clinicSettings } = useStore()
+  const { hasPermission, clinicSettings, pendingRequestsCount } = useStore()
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -136,7 +144,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       <SidebarContent>
         <NavGroup label="Clinical" items={mainNav} pathname={pathname} hasPermission={hasPermission} />
         <NavGroup label="Finance" items={financeNav} pathname={pathname} hasPermission={hasPermission} />
-        <NavGroup label="Administration" items={adminNav} pathname={pathname} hasPermission={hasPermission} />
+        <NavGroup label="Administration" items={adminNav} pathname={pathname} hasPermission={hasPermission} badges={{ "/appointment-requests": pendingRequestsCount }} />
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
