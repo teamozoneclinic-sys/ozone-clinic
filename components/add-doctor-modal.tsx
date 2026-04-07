@@ -130,6 +130,9 @@ export function AddDoctorModal({ open, onOpenChange }: AddDoctorModalProps) {
     }
     if (!specialty) { toast.error("Please select a specialty."); return }
     if (!type) { toast.error("Please select a doctor type."); return }
+    if (email.trim() && !email.trim().toLowerCase().endsWith("@ozonehospital.com")) {
+      toast.error("Email must end with @ozonehospital.com"); return
+    }
 
     // Flatten: one DoctorSchedule entry per slot per enabled day
     const doctorSchedule: DoctorSchedule[] = DAYS_OF_WEEK
@@ -228,7 +231,7 @@ export function AddDoctorModal({ open, onOpenChange }: AddDoctorModalProps) {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="doctor@clinic.com"
+                  placeholder="doctor@ozonehospital.com"
                   className="h-10"
                 />
               </div>
