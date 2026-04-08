@@ -47,6 +47,7 @@ import {
   EyeOff,
   CreditCard,
   Banknote,
+  Ban,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Invoice, PaymentMethod } from "@/lib/types"
@@ -97,7 +98,7 @@ export default function BillingPage() {
 
   const paidInvoices = useMemo(() => {
     return invoices.filter((i) => {
-      const isPaid = i.status === "paid" || i.status === "voided"
+      const isPaid = i.status === "paid"
       const patient = getPatient(i.patientId)
       const matchSearch =
         search === "" ||
@@ -105,6 +106,19 @@ export default function BillingPage() {
         i.id.toLowerCase().includes(search.toLowerCase())
       const matchDoctor = doctorFilter === "all" || i.doctorId === doctorFilter
       return isPaid && matchSearch && matchDoctor
+    })
+  }, [invoices, search, doctorFilter, getPatient])
+
+  const voidedInvoices = useMemo(() => {
+    return invoices.filter((i) => {
+      const isVoided = i.status === "voided"
+      const patient = getPatient(i.patientId)
+      const matchSearch =
+        search === "" ||
+        patient?.name.toLowerCase().includes(search.toLowerCase()) ||
+        i.id.toLowerCase().includes(search.toLowerCase())
+      const matchDoctor = doctorFilter === "all" || i.doctorId === doctorFilter
+      return isVoided && matchSearch && matchDoctor
     })
   }, [invoices, search, doctorFilter, getPatient])
 
@@ -263,6 +277,10 @@ export default function BillingPage() {
             <CheckCircle2 className="h-3.5 w-3.5" />
             Paid History ({paidInvoices.length})
           </TabsTrigger>
+          <TabsTrigger value="voided" className="gap-1.5">
+            <Ban className="h-3.5 w-3.5" />
+            Cancelled ({voidedInvoices.length})
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="outstanding">
@@ -286,6 +304,14 @@ export default function BillingPage() {
             amountsHidden={amountsHidden}
             canCollect={false}
             onCollect={() => {}}
+          />
+        </TabsContent>
+
+        <TabsContent value="voided">
+          <VoidedInvoiceTable
+            invoices={voidedInvoices}
+            getPatient={getPatient}
+            getDoctor={getDoctor}
           />
         </TabsContent>
       </Tabs>
@@ -407,6 +433,96 @@ function InvoiceTable({
                         </Button>
                       </TableCell>
                     )}
+                    <TableCell>
+                      <Link href={`/billing/${inv.id}`}>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" />
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Voided Invoice Table ───────────────────────────────────────────────────
+
+function VoidedInvoiceTable({
+  invoices,
+  getPatient,
+  getDoctor,
+}: {
+  invoices: Invoice[]
+  getPatient: ReturnType<typeof useStore>["getPatient"]
+  getDoctor: ReturnType<typeof useStore>["getDoctor"]
+}) {
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40">
+              <TableHead className="w-[100px]">Invoice</TableHead>
+              <TableHead>Patient</TableHead>
+              <TableHead className="hidden md:table-cell">Doctor</TableHead>
+              <TableHead className="hidden sm:table-cell text-right">Amount</TableHead>
+              <TableHead className="text-center">Status</TableHead>
+              <TableHead>Reason</TableHead>
+              <TableHead className="hidden lg:table-cell">Voided On</TableHead>
+              <TableHead className="w-8"><span className="sr-only">View</span></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {invoices.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="h-32 text-center">
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                    <Ban className="h-8 w-8 opacity-40" />
+                    <p className="text-sm">No cancelled invoices found.</p>
+                    <p className="text-xs">Invoices voided due to appointment cancellation will appear here.</p>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              invoices.map((inv) => {
+                const patient = getPatient(inv.patientId)
+                const doctor = getDoctor(inv.doctorId)
+                return (
+                  <TableRow key={inv.id} className="hover:bg-accent/40 transition-colors">
+                    <TableCell>
+                      <Link href={`/billing/${inv.id}`} className="font-medium font-mono text-xs hover:text-primary transition-colors">
+                        #{inv.id}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Link href={`/patients/${inv.patientId}`} className="flex items-center gap-2.5 group">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                          {patient?.name?.charAt(0) ?? "?"}
+                        </div>
+                        <span className="font-medium group-hover:text-primary transition-colors">
+                          {patient?.name ?? "Unknown"}
+                        </span>
+                      </Link>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-muted-foreground text-sm">
+                      {doctor?.name ?? "-"}
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell text-right font-medium text-muted-foreground line-through">
+                      Rs. {inv.totalAmount.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <StatusBadge status={inv.status} />
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[220px] truncate">
+                      {inv.voidedReason || "Appointment cancelled"}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell text-muted-foreground text-xs">
+                      {inv.updatedAt}
+                    </TableCell>
                     <TableCell>
                       <Link href={`/billing/${inv.id}`}>
                         <ChevronRight className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" />

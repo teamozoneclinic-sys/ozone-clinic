@@ -371,13 +371,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ status }),
       })
       setAppointments((prev) => prev.map((a) => (a.id === appointmentId ? res.data : a)))
+
+      if (status === "cancelled") {
+        // Refresh invoices so the voided invoice appears in billing immediately
+        try {
+          const invRes = await apiFetch<{ data: Invoice[] }>("/api/invoices")
+          setInvoices(invRes.data)
+        } catch { /* silent */ }
+        logAuditEntry(
+          "Appointment Cancelled",
+          "Appointment",
+          appointmentId,
+          `Appointment cancelled.`
+        )
+      }
     },
-    []
+    [logAuditEntry]
   )
 
-  const deleteAppointment = useCallback(async (id: string) => {
-    await apiFetch(`/api/appointments/${id}`, { method: "DELETE" })
+  const deleteAppointment = useCallback(async (id: string, reason?: string) => {
+    await apiFetch(`/api/appointments/${id}`, {
+      method: "DELETE",
+      body: JSON.stringify({ reason: reason ?? "No reason provided" }),
+    })
     setAppointments((prev) => prev.filter((a) => a.id !== id))
+    // Refresh invoices so the voided invoice appears in billing immediately
+    try {
+      const invRes = await apiFetch<{ data: Invoice[] }>("/api/invoices")
+      setInvoices(invRes.data)
+    } catch { /* silent */ }
   }, [])
 
   const updateAppointment = useCallback(

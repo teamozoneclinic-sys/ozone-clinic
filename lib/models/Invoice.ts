@@ -16,6 +16,7 @@ export interface IInvoice extends Document {
   paidAmount: number
   balance: number
   status: "unpaid" | "partially-paid" | "paid" | "voided"
+  voidedReason?: string
   payments: {
     id: string
     invoiceId: string
@@ -52,6 +53,7 @@ const InvoiceSchema = new Schema<IInvoice>(
       enum: ["unpaid", "partially-paid", "paid", "voided"],
       default: "unpaid",
     },
+    voidedReason: { type: String, default: "" },
     payments: [
       {
         id: String,

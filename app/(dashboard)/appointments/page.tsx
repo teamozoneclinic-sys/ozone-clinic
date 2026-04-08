@@ -181,13 +181,7 @@ export default function AppointmentsPage() {
     if (!selectedAppointmentId) return
     setBusyAction(true)
     try {
-      // Call DELETE with reason in body — also voids unpaid invoice server-side
-      await fetch(`/api/appointments/${selectedAppointmentId}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason }),
-      })
-      await deleteAppointment(selectedAppointmentId)
+      await deleteAppointment(selectedAppointmentId, reason)
       toast.success("Appointment deleted.")
       closeSheet()
     } catch (err) {

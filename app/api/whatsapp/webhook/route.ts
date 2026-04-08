@@ -11,8 +11,8 @@ type Lang = "en" | "ur"
 
 const MSG: Record<string, Record<Lang, string | ((...args: string[]) => string)>> = {
   greeting: {
-    en: "Thank you for contacting *Ozone Hospital*! 🏥\n\nPlease select your preferred language:",
-    ur: "Thank you for contacting *Ozone Hospital*! 🏥\n\nPlease select your preferred language:",
+    en: "Thank you for contacting *Ozone Clinic*! 🏥\n\nPlease select your preferred language:",
+    ur: "Thank you for contacting *Ozone Clinic*! 🏥\n\nPlease select your preferred language:",
   },
   ask_book: {
     en: "We are here to help you. Would you like to book an appointment with one of our doctors?",

@@ -117,6 +117,7 @@ export interface Invoice {
   paidAmount: number
   balance: number
   status: InvoiceStatus
+  voidedReason?: string
   payments: Payment[]
   createdAt: string
   updatedAt: string
