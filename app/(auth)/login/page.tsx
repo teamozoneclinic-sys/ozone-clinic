@@ -1,12 +1,13 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { Heart, Eye, EyeOff, Loader2 } from "lucide-react"
+import { Eye, EyeOff, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import Image from "next/image"
 import Link from "next/link"
 
 export default function LoginPage() {
@@ -15,18 +16,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [clinicName, setClinicName] = useState("HealthCare Clinic")
-  const [clinicLogo, setClinicLogo] = useState("")
-
-  useEffect(() => {
-    fetch("/api/clinic-settings/public", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.name) setClinicName(d.name)
-        if (d.logo) setClinicLogo(d.logo)
-      })
-      .catch(() => {})
-  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -65,15 +54,10 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary shadow-lg mb-4 overflow-hidden">
-            {clinicLogo ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={clinicLogo} alt={clinicName} className="h-full w-full object-cover rounded-2xl" />
-            ) : (
-              <Heart className="h-7 w-7 text-primary-foreground" />
-            )}
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl shadow-lg mb-4 overflow-hidden">
+            <Image src="/ozone-logo.PNG" alt="Ozone Clinic" width={56} height={56} className="h-full w-full object-cover rounded-2xl" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground">{clinicName}</h1>
+          <h1 className="text-2xl font-bold text-foreground">Ozone Clinic</h1>
           <p className="text-sm text-muted-foreground mt-1">Management System</p>
         </div>
 
