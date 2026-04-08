@@ -11,10 +11,6 @@ export const metadata: Metadata = {
   title: 'Ozone Clinic - Management System',
   description: 'Comprehensive clinic management system for patient records, appointments, billing, and reports.',
   generator: 'v0.app',
-  icons: {
-    icon: '/ozone-logo.PNG',
-    apple: '/ozone-logo.PNG',
-  },
 }
 
 export default function RootLayout({

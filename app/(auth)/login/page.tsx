@@ -7,7 +7,6 @@ import { Eye, EyeOff, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import Image from "next/image"
 import Link from "next/link"
 
 export default function LoginPage() {
@@ -54,8 +53,9 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl shadow-lg mb-4 overflow-hidden">
-            <Image src="/ozone-logo.PNG" alt="Ozone Clinic" width={56} height={56} className="h-full w-full object-cover rounded-2xl" />
+          <div className="flex h-24 w-24 items-center justify-center mb-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/ozone-logo.png" alt="Ozone Clinic" className="h-full w-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold text-foreground">Ozone Clinic</h1>
           <p className="text-sm text-muted-foreground mt-1">Management System</p>
