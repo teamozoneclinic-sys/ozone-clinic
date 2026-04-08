@@ -51,13 +51,14 @@ function formatTime12h(time: string): string {
 function generateSlots(startTime: string, endTime: string, step = 30): string[] {
   const slots: string[] = []
   const start = timeToMinutes(startTime)
-  const end = timeToMinutes(endTime)
-  // Skip invalid ranges where start >= end
-  if (start >= end) return slots
+  let end = timeToMinutes(endTime)
+  // Handle overnight shifts (e.g., 21:00 to 05:00 next day)
+  if (end <= start) end += 24 * 60
   let cur = start
   while (cur + step <= end) {
-    const h = Math.floor(cur / 60).toString().padStart(2, "0")
-    const m = (cur % 60).toString().padStart(2, "0")
+    const wrapped = cur % (24 * 60)
+    const h = Math.floor(wrapped / 60).toString().padStart(2, "0")
+    const m = (wrapped % 60).toString().padStart(2, "0")
     slots.push(`${h}:${m}`)
     cur += step
   }
@@ -103,10 +104,8 @@ function TimeSlotPicker({
     const daySchedules = doctor.schedule.filter((s) => s.day === dayName)
     if (daySchedules.length === 0) return { slots: [], bookedSlots: new Set<string>(), schedules: [] }
 
-    // Only keep valid schedules where startTime < endTime
-    const validSchedules = daySchedules.filter(
-      (s) => timeToMinutes(s.startTime) < timeToMinutes(s.endTime)
-    )
+    // All schedules are valid (includes overnight shifts where endTime < startTime)
+    const validSchedules = daySchedules
 
     // Generate slots for every valid time range, deduplicate and sort
     const allSlotsSet = new Set<string>()
