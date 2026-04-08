@@ -125,9 +125,9 @@ export default function CatalogPage() {
   return (
     <>
       <PageHeader
-        title="Test Catalog"
+        title="Procedure Catalog"
         description={`${activeCount} active tests offered by the clinic`}
-        breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Test Catalog" }]}
+        breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "Procedure Catalog" }]}
         actions={
           canEdit ? (
             <Button size="sm" onClick={() => setShowAddModal(true)}>

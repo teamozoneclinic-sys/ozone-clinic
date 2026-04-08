@@ -17,16 +17,26 @@ export async function GET(request: NextRequest) {
 
   await connectDB()
 
-  // Find treatments with followUpDate = tomorrow (PKT = UTC+5)
-  // Cron runs at 12:00 AM PKT — we remind patients 1 day before their follow-up
+  // Send follow-up reminders: 2 days before, 1 day before, and on the day
+  // Cron should run daily early morning (e.g. 7:00 AM PKT)
   const nowPKT = new Date(Date.now() + 5 * 60 * 60 * 1000)
-  const tomorrowPKT = new Date(nowPKT.getTime() + 24 * 60 * 60 * 1000)
-  const tomorrowStr = tomorrowPKT.toISOString().split("T")[0] // "YYYY-MM-DD"
+  const todayStr = nowPKT.toISOString().split("T")[0] // "YYYY-MM-DD"
 
-  const treatments = await Treatment.find({ followUpDate: tomorrowStr })
+  const addDays = (base: Date, days: number) => {
+    const d = new Date(base.getTime() + days * 24 * 60 * 60 * 1000)
+    return d.toISOString().split("T")[0]
+  }
+
+  const dayPlus1 = addDays(nowPKT, 1)
+  const dayPlus2 = addDays(nowPKT, 2)
+
+  // Find treatments with follow-up in: today, tomorrow, or day after tomorrow
+  const treatments = await Treatment.find({
+    followUpDate: { $in: [todayStr, dayPlus1, dayPlus2] },
+  })
 
   if (treatments.length === 0) {
-    return NextResponse.json({ sent: 0, message: "No follow-ups today" })
+    return NextResponse.json({ sent: 0, message: "No follow-up reminders to send" })
   }
 
   const clinic = await ClinicSettings.findOne({})
@@ -40,8 +50,22 @@ export async function GET(request: NextRequest) {
     const doctor = await Doctor.findById(treatment.doctorId)
     const doctorName = doctor?.name ?? "your doctor"
 
-    const params = [patient.name || "Patient", tomorrowStr, doctorName, clinicPhone]
-    console.log(`[Cron] Sending followup_reminder to ${patient.phone} with params:`, params)
+    // Determine how many days away the follow-up is
+    const followUpDate: string = treatment.followUpDate ?? todayStr
+    let reminderLabel = ""
+    if (followUpDate === todayStr) {
+      reminderLabel = "today"
+    } else if (followUpDate === dayPlus1) {
+      reminderLabel = "tomorrow"
+    } else if (followUpDate === dayPlus2) {
+      reminderLabel = "in 2 days"
+    }
+
+    // Display date as DD/MM/YYYY
+    const displayDate = followUpDate.split("-").reverse().join("/")
+
+    const params = [patient.name || "Patient", displayDate, doctorName, clinicPhone, reminderLabel]
+    console.log(`[Cron] Sending followup_reminder to ${patient.phone} (${reminderLabel}) with params:`, params)
 
     const ok = await sendWhatsAppTemplate(
       patient.phone,
@@ -49,10 +73,10 @@ export async function GET(request: NextRequest) {
       params
     )
     if (ok) {
-      console.log(`[WhatsApp] ✅ Follow-up reminder sent to ${patient.phone} (${patient.name})`)
+      console.log(`[WhatsApp] ✅ Follow-up reminder (${reminderLabel}) sent to ${patient.phone} (${patient.name})`)
       sent++
     }
   }
 
-  return NextResponse.json({ sent, total: treatments.length })
+  return NextResponse.json({ sent, total: treatments.length, dates: { today: todayStr, tomorrow: dayPlus1, dayAfter: dayPlus2 } })
 }

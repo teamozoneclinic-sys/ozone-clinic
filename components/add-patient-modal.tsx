@@ -44,10 +44,19 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
   const [notes, setNotes] = useState("")
   const [saving, setSaving] = useState(false)
 
-  // Phone: digits only, auto-format 03XX-XXXXXXX, max 11 digits
+  // Phone: allow + prefix for international, digits only after that
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const digits = e.target.value.replace(/\D/g, "").slice(0, 11)
-    setPhone(digits.length > 4 ? `${digits.slice(0, 4)}-${digits.slice(4)}` : digits)
+    const raw = e.target.value
+    // Allow leading + for international numbers
+    const hasPlus = raw.startsWith("+")
+    const digits = raw.replace(/\D/g, "").slice(0, 15)
+    if (hasPlus) {
+      setPhone("+" + digits)
+    } else {
+      // Pakistani local format
+      const local = digits.slice(0, 11)
+      setPhone(local.length > 4 ? `${local.slice(0, 4)}-${local.slice(4)}` : local)
+    }
   }
 
   const reset = () => {
@@ -62,8 +71,14 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
       return
     }
     const digits = phone.replace(/\D/g, "")
-    if (!/^03\d{9}$/.test(digits)) {
-      toast.error("Phone must be 11 digits starting with 03 (e.g. 0300-1234567).")
+    const isInternational = phone.startsWith("+")
+    if (isInternational) {
+      if (digits.length < 7 || digits.length > 15) {
+        toast.error("International phone must be 7–15 digits (e.g. +971501234567).")
+        return
+      }
+    } else if (!/^03\d{9}$/.test(digits)) {
+      toast.error("Pakistani phone must be 11 digits starting with 03 (e.g. 0300-1234567). For international numbers, use + prefix (e.g. +971...).")
       return
     }
     setSaving(true)
@@ -136,9 +151,8 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
                 id="p-phone"
                 value={phone}
                 onChange={handlePhoneChange}
-                placeholder="0300-1234567"
-                inputMode="numeric"
-                maxLength={12}
+                placeholder="0300-1234567 or +971..."
+                maxLength={16}
                 className="h-10 font-mono tracking-wider"
               />
             </div>

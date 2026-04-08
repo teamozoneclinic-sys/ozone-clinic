@@ -238,7 +238,12 @@ export default function TreatmentDetailPage({ params }: { params: Promise<{ id: 
               {treatment.followUpDate && (
                 <div className="rounded-lg bg-blue-50 p-3">
                   <p className="text-xs font-medium text-blue-800">Follow-up Date</p>
-                  <p className="text-sm font-semibold text-blue-900">{treatment.followUpDate}</p>
+                  <p className="text-sm font-semibold text-blue-900">
+                    {/* Display YYYY-MM-DD as DD/MM/YYYY */}
+                    {treatment.followUpDate.includes("-")
+                      ? treatment.followUpDate.split("-").reverse().join("/")
+                      : treatment.followUpDate}
+                  </p>
                 </div>
               )}
             </CardContent>

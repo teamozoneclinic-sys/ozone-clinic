@@ -32,6 +32,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Separator } from "@/components/ui/separator"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
 import {
   Plus,
   ChevronLeft,
@@ -175,10 +177,16 @@ export default function AppointmentsPage() {
     }
   }
 
-  const handleDelete = async () => {
+  const handleDelete = async (reason: string) => {
     if (!selectedAppointmentId) return
     setBusyAction(true)
     try {
+      // Call DELETE with reason in body — also voids unpaid invoice server-side
+      await fetch(`/api/appointments/${selectedAppointmentId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      })
       await deleteAppointment(selectedAppointmentId)
       toast.success("Appointment deleted.")
       closeSheet()
@@ -504,7 +512,7 @@ function AppointmentDetailContent({
   getInvoice: (id: string) => ReturnType<ReturnType<typeof useStore>["getInvoice"]>
   onCancel: () => Promise<void>
   onComplete: () => Promise<void>
-  onDelete: () => Promise<void>
+  onDelete: (reason: string) => Promise<void>
   onUpdateTime: (date: string, time: string, duration: number) => Promise<void>
   isAdmin: boolean
   canManage: boolean
@@ -519,6 +527,7 @@ function AppointmentDetailContent({
   const [newTime, setNewTime] = useState(appointment.time)
   const [newDuration, setNewDuration] = useState(appointment.duration)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteReason, setDeleteReason] = useState("")
 
   // Reset form when appointment changes (e.g. external update)
   const resetModifyForm = () => {
@@ -738,7 +747,7 @@ function AppointmentDetailContent({
       </div>
 
       {/* Delete confirmation */}
-      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+      <AlertDialog open={showDeleteConfirm} onOpenChange={(open) => { setShowDeleteConfirm(open); if (!open) setDeleteReason("") }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Appointment?</AlertDialogTitle>
@@ -746,14 +755,27 @@ function AppointmentDetailContent({
               This will permanently remove the appointment for{" "}
               <strong>{patient?.name ?? "this patient"}</strong> on{" "}
               <strong>{appointment.date} at {appointment.time}</strong>.
-              This cannot be undone.
+              Any unpaid invoice will be voided. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="px-1 pb-2 flex flex-col gap-1.5">
+            <Label htmlFor="delete-reason" className="text-sm font-medium">
+              Reason for deletion <span className="text-red-500">*</span>
+            </Label>
+            <Textarea
+              id="delete-reason"
+              placeholder="e.g. Patient requested cancellation, duplicate booking..."
+              value={deleteReason}
+              onChange={(e) => setDeleteReason(e.target.value)}
+              rows={2}
+              className="resize-none text-sm"
+            />
+          </div>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isBusy}>Keep It</AlertDialogCancel>
+            <AlertDialogCancel disabled={isBusy} onClick={() => setDeleteReason("")}>Keep It</AlertDialogCancel>
             <AlertDialogAction
-              disabled={isBusy}
-              onClick={onDelete}
+              disabled={isBusy || !deleteReason.trim()}
+              onClick={() => onDelete(deleteReason.trim())}
               className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
             >
               {isBusy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Trash2 className="mr-1.5 h-4 w-4" />}

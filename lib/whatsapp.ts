@@ -5,10 +5,17 @@
 
 const GRAPH_URL = "https://graph.facebook.com/v21.0"
 
-// Format phone to international digits (e.g. 03001234567 → 923001234567)
+// Format phone to full international digits without leading +
+// Pakistani local 03XXXXXXXXX → 923XXXXXXXXX
+// International with country code (e.g. +44..., +1..., +971...) → strip non-digits
+// Numbers already in international format (e.g. 923XXXXXXXXX, 44XXXXXXXXXX) → pass through
 function formatPhone(phone: string): string {
   const digits = phone.replace(/\D/g, "")
-  return digits.startsWith("0") ? "92" + digits.slice(1) : digits
+  // Pakistani local numbers starting with 0 → prepend 92
+  if (digits.startsWith("0") && digits.length === 11) {
+    return "92" + digits.slice(1)
+  }
+  return digits
 }
 
 async function metaPost(body: object): Promise<void> {

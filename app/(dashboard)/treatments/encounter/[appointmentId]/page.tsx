@@ -264,6 +264,25 @@ function EncounterForm({
       return
     }
 
+    // Validate follow-up date format if provided
+    let parsedFollowUp: string | undefined
+    if (followUpDate) {
+      const match = followUpDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+      if (!match) {
+        toast.error("Follow-up date must be in DD/MM/YYYY format (e.g. 15/04/2026).")
+        setActiveSection("plan")
+        return
+      }
+      const [, dd, mm, yyyy] = match
+      const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd))
+      if (d.getDate() !== Number(dd) || d.getMonth() !== Number(mm) - 1) {
+        toast.error("Invalid follow-up date.")
+        setActiveSection("plan")
+        return
+      }
+      parsedFollowUp = `${yyyy}-${mm}-${dd}`
+    }
+
     setFinalizing(true)
     try {
       await createTreatment({
@@ -277,15 +296,15 @@ function EncounterForm({
         prescribedInstructions,
         testsRecommended: selectedTestIds,
         doctorSummary,
-        followUpDate: followUpDate || undefined,
+        followUpDate: parsedFollowUp,
         attachments: [],
         status: "completed",
       })
       await updateAppointmentStatus(appointmentId, "completed")
-      toast.success("Encounter finalized and treatment record saved.")
+      toast.success("Consultation finalized and treatment record saved.")
       router.push("/treatments")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to finalize encounter.")
+      toast.error(err instanceof Error ? err.message : "Failed to finalize consultation.")
       setFinalizing(false)
     }
   }
@@ -459,14 +478,20 @@ function EncounterForm({
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="follow-up">Follow-up Date</Label>
+                  <Label htmlFor="follow-up">Follow-up Date (DD/MM/YYYY)</Label>
                   <Input
                     id="follow-up"
-                    type="date"
+                    type="text"
+                    placeholder="DD/MM/YYYY"
                     value={followUpDate}
-                    onChange={(e) => setFollowUpDate(e.target.value)}
-                    min={appointment!.date}
+                    onChange={(e) => {
+                      // Allow digits and separators, auto-format to DD/MM/YYYY
+                      const raw = e.target.value.replace(/[^\d/]/g, "")
+                      if (raw.length <= 10) setFollowUpDate(raw)
+                    }}
+                    maxLength={10}
                   />
+                  <p className="text-xs text-muted-foreground">Format: DD/MM/YYYY (e.g. 15/04/2026)</p>
                 </div>
                 <div className="flex justify-between">
                   <Button variant="outline" size="sm" onClick={() => setActiveSection("diagnosis")}>
@@ -707,7 +732,7 @@ function EncounterForm({
           <div className="flex flex-col gap-2">
             <Button onClick={handleFinalize} className="w-full" disabled={finalizing}>
               <CheckCircle2 className="mr-1 h-4 w-4" />
-              {finalizing ? "Saving…" : "Finalize Encounter"}
+              {finalizing ? "Saving…" : "Finalize Consultation"}
             </Button>
             <Button variant="outline" className="w-full" asChild disabled={finalizing}>
               <Link href="/treatments">Cancel</Link>

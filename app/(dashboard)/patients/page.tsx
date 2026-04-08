@@ -464,8 +464,15 @@ function EditPatientModal({
   const [saving, setSaving] = useState(false)
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const digits = e.target.value.replace(/\D/g, "").slice(0, 11)
-    setPhone(digits.length > 4 ? `${digits.slice(0, 4)}-${digits.slice(4)}` : digits)
+    const raw = e.target.value
+    const hasPlus = raw.startsWith("+")
+    const digits = raw.replace(/\D/g, "").slice(0, 15)
+    if (hasPlus) {
+      setPhone("+" + digits)
+    } else {
+      const local = digits.slice(0, 11)
+      setPhone(local.length > 4 ? `${local.slice(0, 4)}-${local.slice(4)}` : local)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -524,9 +531,8 @@ function EditPatientModal({
                 id="ep-phone"
                 value={phone}
                 onChange={handlePhoneChange}
-                placeholder="0300-1234567"
-                inputMode="numeric"
-                maxLength={12}
+                placeholder="0300-1234567 or +971..."
+                maxLength={16}
                 className="h-10 font-mono tracking-wider"
               />
             </div>
