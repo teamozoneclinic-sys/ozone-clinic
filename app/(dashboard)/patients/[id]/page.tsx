@@ -124,7 +124,16 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filename: file.name, contentType: file.type, data: base64 }),
       })
-      const data = await res.json()
+      let data
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error(
+          res.status === 413
+            ? "File too large. Try a smaller file (under 4 MB)."
+            : `Server error (${res.status}). Try a smaller file.`
+        )
+      }
       if (!res.ok) throw new Error(data.error || "Upload failed")
       setDocuments(data.data.documents ?? [])
       toast.success(`"${file.name}" uploaded.`)
@@ -143,7 +152,12 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
         `/api/patients/${patient.id}/documents?docId=${docId}`,
         { method: "DELETE" }
       )
-      const data = await res.json()
+      let data
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error(`Server error (${res.status}).`)
+      }
       if (!res.ok) throw new Error(data.error || "Delete failed")
       setDocuments(data.data.documents ?? [])
       toast.success(`"${docName}" removed.`)
