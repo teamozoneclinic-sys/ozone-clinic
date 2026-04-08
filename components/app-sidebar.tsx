@@ -29,6 +29,7 @@ import {
   Heart,
   FlaskConical,
   UserRound,
+  MessageCircle,
 } from "lucide-react"
 import type { Permission } from "@/lib/types"
 
@@ -54,6 +55,7 @@ const financeNav: NavItem[] = [
 
 const adminNav: NavItem[] = [
   { title: "Doctors", href: "/doctors", icon: UserRound, permission: "doctors.view" },
+  { title: "WA Requests", href: "/appointment-requests", icon: MessageCircle, permission: "appointments.view" },
   { title: "Settings", href: "/settings", icon: Settings, permission: "settings.view" },
   { title: "Audit Log", href: "/audit", icon: ScrollText, permission: "audit.view" },
 ]
@@ -111,7 +113,7 @@ function NavGroup({
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { hasPermission, clinicSettings } = useStore()
+  const { hasPermission, clinicSettings, pendingRequestsCount } = useStore()
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -142,7 +144,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       <SidebarContent>
         <NavGroup label="Clinical" items={mainNav} pathname={pathname} hasPermission={hasPermission} />
         <NavGroup label="Finance" items={financeNav} pathname={pathname} hasPermission={hasPermission} />
-        <NavGroup label="Administration" items={adminNav} pathname={pathname} hasPermission={hasPermission} />
+        <NavGroup label="Administration" items={adminNav} pathname={pathname} hasPermission={hasPermission} badges={{ "/appointment-requests": pendingRequestsCount }} />
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
