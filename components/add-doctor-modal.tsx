@@ -134,6 +134,20 @@ export function AddDoctorModal({ open, onOpenChange }: AddDoctorModalProps) {
       toast.error("Email must end with @ozonehospital.com"); return
     }
 
+    // Validate schedule: endTime must be after startTime
+    for (const day of DAYS_OF_WEEK) {
+      if (!schedule[day].enabled) continue
+      for (let i = 0; i < schedule[day].slots.length; i++) {
+        const slot = schedule[day].slots[i]
+        const [sh, sm] = slot.startTime.split(":").map(Number)
+        const [eh, em] = slot.endTime.split(":").map(Number)
+        if (sh * 60 + sm >= eh * 60 + em) {
+          toast.error(`${day} slot ${i + 1}: End time must be after start time.`)
+          return
+        }
+      }
+    }
+
     // Flatten: one DoctorSchedule entry per slot per enabled day
     const doctorSchedule: DoctorSchedule[] = DAYS_OF_WEEK
       .filter((d) => schedule[d].enabled && schedule[d].slots.length > 0)

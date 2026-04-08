@@ -50,8 +50,11 @@ function formatTime12h(time: string): string {
 
 function generateSlots(startTime: string, endTime: string, step = 30): string[] {
   const slots: string[] = []
-  let cur = timeToMinutes(startTime)
+  const start = timeToMinutes(startTime)
   const end = timeToMinutes(endTime)
+  // Skip invalid ranges where start >= end
+  if (start >= end) return slots
+  let cur = start
   while (cur + step <= end) {
     const h = Math.floor(cur / 60).toString().padStart(2, "0")
     const m = (cur % 60).toString().padStart(2, "0")
@@ -100,10 +103,19 @@ function TimeSlotPicker({
     const daySchedules = doctor.schedule.filter((s) => s.day === dayName)
     if (daySchedules.length === 0) return { slots: [], bookedSlots: new Set<string>(), schedules: [] }
 
-    // Generate slots for every time range on this day using duration as the step interval
-    const allSlots = daySchedules.flatMap((sched) =>
-      generateSlots(sched.startTime, sched.endTime, duration)
+    // Only keep valid schedules where startTime < endTime
+    const validSchedules = daySchedules.filter(
+      (s) => timeToMinutes(s.startTime) < timeToMinutes(s.endTime)
     )
+
+    // Generate slots for every valid time range, deduplicate and sort
+    const allSlotsSet = new Set<string>()
+    for (const sched of validSchedules) {
+      for (const slot of generateSlots(sched.startTime, sched.endTime, duration)) {
+        allSlotsSet.add(slot)
+      }
+    }
+    const allSlots = Array.from(allSlotsSet).sort((a, b) => timeToMinutes(a) - timeToMinutes(b))
 
     const existing = appointments.filter(
       (a) => a.doctorId === doctorId && a.date === date && a.status !== "cancelled"
@@ -114,7 +126,7 @@ function TimeSlotPicker({
       if (isSlotBooked(slot, duration, existing)) booked.add(slot)
     }
 
-    return { slots: allSlots, bookedSlots: booked, schedules: daySchedules }
+    return { slots: allSlots, bookedSlots: booked, schedules: validSchedules }
   }, [doctor, date, duration, doctorId, appointments])
 
   if (!doctorId || !date) {
