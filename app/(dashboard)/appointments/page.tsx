@@ -57,7 +57,14 @@ import { getPKTDateString, toPKTDateString } from "@/lib/pkt"
 
 type ViewMode = "day" | "week" | "month"
 
-const HOURS = Array.from({ length: 10 }, (_, i) => i + 8) // 8am to 5pm
+const HOURS = Array.from({ length: 24 }, (_, i) => i) // 12am to 11pm
+
+function formatHour(hour: number): string {
+  if (hour === 0) return "12 AM"
+  if (hour < 12) return `${hour} AM`
+  if (hour === 12) return "12 PM"
+  return `${hour - 12} PM`
+}
 
 const TODAY = getPKTDateString()
 
@@ -311,14 +318,13 @@ export default function AppointmentsPage() {
           <CardContent className="p-0">
             <div className="flex flex-col">
               {HOURS.map((hour) => {
-                const hourStr = `${hour.toString().padStart(2, "0")}:00`
                 const hourAppts = getAppointmentsForDate(currentDate).filter(
                   (a) => parseInt(a.time.split(":")[0]) === hour
                 )
                 return (
                   <div key={hour} className="flex min-h-[72px] border-b border-border/60 last:border-b-0">
                     <div className="flex w-20 shrink-0 items-start justify-end border-r border-border/60 p-2">
-                      <span className="text-xs text-muted-foreground">{hourStr}</span>
+                      <span className="text-xs text-muted-foreground">{formatHour(hour)}</span>
                     </div>
                     <div className="flex flex-1 flex-wrap gap-2 p-2">
                       {hourAppts.map((apt) => {
