@@ -83,8 +83,9 @@ interface StoreState {
   }) => Promise<void>
   collectPayment: (invoiceId: string, payment: Omit<Payment, "id">) => Promise<void>
   createTreatment: (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">) => Promise<Treatment>
+  updateTreatment: (id: string, data: Partial<Omit<Treatment, "id" | "createdAt" | "updatedAt">> & { customProcedures?: { name: string; amount: number }[]; newTestIds?: string[] }) => Promise<{ treatment: Treatment; invoice: Invoice | null }>
   updateAppointmentStatus: (appointmentId: string, status: Appointment["status"]) => Promise<void>
-  deleteAppointment: (id: string) => Promise<void>
+  deleteAppointment: (id: string, reason?: string) => Promise<void>
   updateAppointment: (id: string, data: Partial<Pick<Appointment, "date" | "time" | "duration">>) => Promise<void>
   refreshLiveData: () => Promise<void>
   refetch: () => Promise<void>
@@ -364,6 +365,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [logAuditEntry]
   )
 
+  const updateTreatment = useCallback(
+    async (id: string, data: Partial<Omit<Treatment, "id" | "createdAt" | "updatedAt">> & { customProcedures?: { name: string; amount: number }[]; newTestIds?: string[] }) => {
+      const res = await apiFetch<{ data: Treatment; invoice: Invoice | null }>(`/api/treatments/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      })
+      setTreatments((prev) => prev.map((t) => (t.id === id ? res.data : t)))
+      if (res.invoice) {
+        setInvoices((prev) => prev.map((inv) => (inv.id === res.invoice!.id ? res.invoice! : inv)))
+      }
+      return { treatment: res.data, invoice: res.invoice }
+    },
+    []
+  )
+
   const updateAppointmentStatus = useCallback(
     async (appointmentId: string, status: Appointment["status"]) => {
       const res = await apiFetch<{ data: Appointment }>(`/api/appointments/${appointmentId}`, {
@@ -568,6 +584,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addAppointment,
         collectPayment,
         createTreatment,
+        updateTreatment,
         updateAppointmentStatus,
         deleteAppointment,
         updateAppointment,

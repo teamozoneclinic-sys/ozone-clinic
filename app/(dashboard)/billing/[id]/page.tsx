@@ -44,6 +44,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const { id } = use(params)
   const { getInvoice, getPatient, getDoctor, getAppointment, hasPermission, currentUser, clinicSettings } = useStore()
   const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [showDiscountModal, setShowDiscountModal] = useState(false)
   const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null)
   const [sendingWA, setSendingWA] = useState(false)
 
@@ -142,7 +143,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               </Button>
             )}
             {canDiscount && invoice.status !== "voided" && invoice.status !== "paid" && (
-              <Button variant="outline" size="sm" onClick={() => toast.info("Discount feature coming soon.")}>
+              <Button variant="outline" size="sm" onClick={() => setShowDiscountModal(true)}>
                 Add Discount
               </Button>
             )}
@@ -331,6 +332,14 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         onPaymentCollected={(payment) => setReceiptPayment(payment)}
       />
 
+      {/* Discount Modal */}
+      <DiscountModal
+        open={showDiscountModal}
+        onOpenChange={setShowDiscountModal}
+        invoiceId={invoice.id}
+        appliedBy={currentUser?.name ?? "Staff"}
+      />
+
       {/* Receipt Dialog */}
       {receiptPayment && (
         <InvoiceReceiptDialog
@@ -473,6 +482,101 @@ function CollectPaymentModal({
             </Button>
             <Button type="submit" disabled={saving}>
               {saving ? "Processing…" : `Collect Rs. ${amount || "0"}`}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Discount Modal ─────────────────────────────────────────────────────────
+
+function DiscountModal({
+  open,
+  onOpenChange,
+  invoiceId,
+  appliedBy,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  invoiceId: string
+  appliedBy: string
+}) {
+  const [description, setDescription] = useState("")
+  const [amount, setAmount] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const reset = () => { setDescription(""); setAmount("") }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const num = parseFloat(amount)
+    if (!description.trim() || isNaN(num) || num <= 0) {
+      toast.error("Enter a description and a valid discount amount.")
+      return
+    }
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/invoices/${invoiceId}/discount`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: description.trim(), amount: num, appliedBy }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "Failed to apply discount")
+      }
+      toast.success(`Discount of Rs. ${num} applied.`)
+      onOpenChange(false)
+      reset()
+      // Refresh the page to show updated invoice
+      window.location.reload()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to apply discount.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { onOpenChange(false); reset() } }}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Add Discount</DialogTitle>
+          <DialogDescription>Apply a discount line item to this invoice.</DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="disc-desc">Reason / Description *</Label>
+            <Input
+              id="disc-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. Loyalty discount, Referral discount…"
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="disc-amount">Discount Amount (Rs.) *</Label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground font-medium">Rs.</span>
+              <Input
+                id="disc-amount"
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="pl-10"
+                min={0.01}
+                step={0.01}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => { onOpenChange(false); reset() }} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Applying…" : "Apply Discount"}
             </Button>
           </div>
         </form>

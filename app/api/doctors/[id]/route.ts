@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import Doctor from "@/lib/models/Doctor"
+import AuditLog from "@/lib/models/AuditLog"
 import { getRequestUser } from "@/lib/auth"
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -33,6 +34,22 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
 
   await connectDB()
   const { id } = await params
+  const doctor = await Doctor.findById(id)
+  if (!doctor) return NextResponse.json({ error: "Not found" }, { status: 404 })
+
   await Doctor.findByIdAndDelete(id)
+
+  // Audit log — all patient records linked to this doctor are preserved
+  await AuditLog.create({
+    userId: user.id,
+    userName: user.name,
+    userRole: user.role,
+    action: "Doctor Deleted",
+    entity: "Doctor",
+    entityId: id,
+    details: `Dr. ${doctor.name} (${doctor.specialty}) removed from system. All linked patient records, appointments, treatments, and invoices are preserved.`,
+    timestamp: new Date().toISOString(),
+  })
+
   return NextResponse.json({ success: true })
 }

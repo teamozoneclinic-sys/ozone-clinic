@@ -5,6 +5,7 @@ import Patient from "@/lib/models/Patient"
 import Appointment from "@/lib/models/Appointment"
 import Invoice from "@/lib/models/Invoice"
 import TestCatalog from "@/lib/models/TestCatalog"
+import AuditLog from "@/lib/models/AuditLog"
 import { getRequestUser } from "@/lib/auth"
 
 export async function GET(request: NextRequest) {
@@ -49,26 +50,34 @@ export async function POST(request: NextRequest) {
       console.error("Failed to append medical history:", historyErr)
     }
 
-    // Auto-add recommended tests as line items on the appointment's invoice
+    // Auto-add recommended tests + custom procedures as line items on the invoice
     let updatedInvoice = null
     const testIds: string[] = body.testsRecommended ?? []
-    if (testIds.length > 0 && body.appointmentId) {
+    const customProcedures: { name: string; amount: number }[] = body.customProcedures ?? []
+    if ((testIds.length > 0 || customProcedures.length > 0) && body.appointmentId) {
       try {
         const appointment = await Appointment.findById(body.appointmentId)
         if (appointment?.invoiceId) {
           const [invoice, tests] = await Promise.all([
             Invoice.findById(appointment.invoiceId),
-            TestCatalog.find({ _id: { $in: testIds } }),
+            testIds.length > 0 ? TestCatalog.find({ _id: { $in: testIds } }) : Promise.resolve([]),
           ])
-          if (invoice && tests.length > 0) {
-            const newLineItems = tests.map((t) => ({
+          if (invoice) {
+            const testLineItems = tests.map((t: { _id: { toString(): string }; name: string; price: number }) => ({
               id: `li_test_${Date.now()}_${t._id.toString().slice(-6)}`,
               description: `Lab Test: ${t.name}`,
               category: "test",
               amount: t.price,
               quantity: 1,
             }))
-            const allLineItems = [...(invoice.lineItems ?? []), ...newLineItems]
+            const procedureLineItems = customProcedures.map((p, i) => ({
+              id: `li_proc_${Date.now()}_${i}`,
+              description: p.name,
+              category: "procedure",
+              amount: p.amount,
+              quantity: 1,
+            }))
+            const allLineItems = [...(invoice.lineItems ?? []), ...testLineItems, ...procedureLineItems]
             const newTotal = allLineItems.reduce(
               (sum: number, li: { amount: number; quantity: number }) => sum + li.amount * li.quantity,
               0
@@ -86,10 +95,20 @@ export async function POST(request: NextRequest) {
           }
         }
       } catch (invoiceErr) {
-        console.error("Failed to add test line items to invoice:", invoiceErr)
-        // Non-critical — treatment is still saved
+        console.error("Failed to add line items to invoice:", invoiceErr)
       }
     }
+
+    await AuditLog.create({
+      userId: user.id,
+      userName: user.name,
+      userRole: user.role,
+      action: "Treatment Created",
+      entity: "Treatment",
+      entityId: treatment._id.toString(),
+      details: `Consultation finalized. Diagnosis: ${body.diagnosis || "—"}. Procedures: ${customProcedures.length}, Tests: ${testIds.length}.`,
+      timestamp: new Date().toISOString(),
+    })
 
     return NextResponse.json(
       { data: treatment.toJSON(), invoice: updatedInvoice?.toJSON() ?? null },

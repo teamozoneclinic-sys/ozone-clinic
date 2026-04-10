@@ -153,7 +153,6 @@ export const ROLE_PERMISSIONS: RolePermissions[] = [
       "billing.view",
       "billing.collect",
       "billing.discount",
-      "reports.view",
       "settings.view",
       "audit.view",
       "doctors.view",
@@ -162,14 +161,12 @@ export const ROLE_PERMISSIONS: RolePermissions[] = [
   {
     role: "accounts",
     label: "Accounts",
-    description: "Billing, payment collection, and financial reports",
+    description: "Billing and payment collection",
     permissions: [
       "patients.view",
       "appointments.view",
       "billing.view",
       "billing.collect",
-      "billing.discount",
-      "reports.view",
     ],
   },
 ]

@@ -31,18 +31,21 @@ import {
   CheckCircle2,
   ChevronRight,
   History,
+  Pencil,
+  Plus,
 } from "lucide-react"
 import type { Treatment } from "@/lib/types"
 import Link from "next/link"
 import { toast } from "sonner"
 
-type Section = "notes" | "diagnosis" | "plan" | "tests"
+type Section = "notes" | "diagnosis" | "plan" | "tests" | "procedures"
 
 const SECTIONS: { key: Section; label: string; icon: typeof ClipboardList }[] = [
   { key: "notes", label: "Clinical Notes", icon: ClipboardList },
   { key: "diagnosis", label: "Diagnosis", icon: Stethoscope },
   { key: "plan", label: "Treatment Plan", icon: FileText },
   { key: "tests", label: "Tests & Orders", icon: FlaskConical },
+  { key: "procedures", label: "Procedures", icon: Pencil },
 ]
 
 export default function EncounterPage({
@@ -60,9 +63,9 @@ export default function EncounterPage({
     getTreatmentByAppointment,
     getPatientTreatments,
     createTreatment,
+    updateTreatment,
     updateAppointmentStatus,
     testCatalog,
-    currentUser,
   } = useStore()
 
   const appointment = getAppointment(appointmentId)
@@ -135,42 +138,8 @@ export default function EncounterPage({
     )
   }
 
-  // ─── Guard: already finalized ──────────────────────────────────
-  if (existingTreatment) {
-    return (
-      <>
-        <PageHeader
-          title="Encounter Already Finalized"
-          breadcrumbs={[
-            { label: "Dashboard", href: "/" },
-            { label: "Treatments", href: "/treatments" },
-            { label: "Finalized" },
-          ]}
-        />
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center gap-4 py-12">
-            <CheckCircle2 className="h-10 w-10 text-emerald-600" />
-            <p className="text-sm text-muted-foreground">
-              The clinical encounter for this appointment has already been finalized.
-            </p>
-            <div className="flex gap-2">
-              <Button variant="outline" asChild>
-                <Link href="/treatments">Back to Treatments</Link>
-              </Button>
-              <Button asChild>
-                <Link href={`/treatments/${existingTreatment.id}`}>
-                  View Treatment Record
-                  <ChevronRight className="ml-1 h-4 w-4" />
-                </Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </>
-    )
-  }
-
   const previousTreatments = getPatientTreatments(appointment.patientId)
+    .filter((t) => t.id !== existingTreatment?.id)
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 5)
 
@@ -180,7 +149,9 @@ export default function EncounterPage({
       appointment={appointment}
       patient={patient}
       doctor={doctor}
+      existingTreatment={existingTreatment ?? null}
       createTreatment={createTreatment}
+      updateTreatment={updateTreatment}
       updateAppointmentStatus={updateAppointmentStatus}
       testCatalog={testCatalog}
       previousTreatments={previousTreatments}
@@ -196,7 +167,9 @@ function EncounterForm({
   appointment,
   patient,
   doctor,
+  existingTreatment,
   createTreatment,
+  updateTreatment,
   updateAppointmentStatus,
   testCatalog,
   previousTreatments,
@@ -206,22 +179,32 @@ function EncounterForm({
   appointment: ReturnType<ReturnType<typeof useStore>["getAppointment"]> & object
   patient: ReturnType<ReturnType<typeof useStore>["getPatient"]>
   doctor: ReturnType<ReturnType<typeof useStore>["getDoctor"]>
+  existingTreatment: Treatment | null
   createTreatment: ReturnType<typeof useStore>["createTreatment"]
+  updateTreatment: ReturnType<typeof useStore>["updateTreatment"]
   updateAppointmentStatus: ReturnType<typeof useStore>["updateAppointmentStatus"]
   testCatalog: ReturnType<typeof useStore>["testCatalog"]
   previousTreatments: Treatment[]
   router: ReturnType<typeof useRouter>
 }) {
+  const isEdit = !!existingTreatment
   const [activeSection, setActiveSection] = useState<Section>("notes")
 
-  // Form state
-  const [complaint, setComplaint] = useState("")
-  const [clinicalNotes, setClinicalNotes] = useState("")
-  const [diagnosis, setDiagnosis] = useState("")
-  const [doctorSummary, setDoctorSummary] = useState("")
-  const [prescribedInstructions, setPrescribedInstructions] = useState("")
-  const [followUpDate, setFollowUpDate] = useState("")
+  // Form state — pre-fill if editing
+  const [complaint, setComplaint] = useState(existingTreatment?.complaint ?? "")
+  const [clinicalNotes, setClinicalNotes] = useState(existingTreatment?.clinicalNotes ?? "")
+  const [diagnosis, setDiagnosis] = useState(existingTreatment?.diagnosis ?? "")
+  const [doctorSummary, setDoctorSummary] = useState(existingTreatment?.doctorSummary ?? "")
+  const [prescribedInstructions, setPrescribedInstructions] = useState(existingTreatment?.prescribedInstructions ?? "")
+  const [followUpDate, setFollowUpDate] = useState(existingTreatment?.followUpDate ?? "")
   const [selectedTestIds, setSelectedTestIds] = useState<string[]>([])
+
+  // Custom procedures state
+  const [customProcedures, setCustomProcedures] = useState<{ name: string; amount: string }[]>([])
+  const addProcedure = () => setCustomProcedures((prev) => [...prev, { name: "", amount: "" }])
+  const removeProcedure = (i: number) => setCustomProcedures((prev) => prev.filter((_, idx) => idx !== i))
+  const updateProcedure = (i: number, field: "name" | "amount", val: string) =>
+    setCustomProcedures((prev) => prev.map((p, idx) => (idx === i ? { ...p, [field]: val } : p)))
 
   // Test selection state
   const [testSearch, setTestSearch] = useState("")
@@ -243,6 +226,7 @@ function EncounterForm({
 
   const selectedTests = testCatalog.filter((t) => selectedTestIds.includes(t.id))
   const totalTestCost = selectedTests.reduce((s, t) => s + t.price, 0)
+  const totalProcedureCost = customProcedures.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
 
   const toggleTest = (id: string) => {
     setSelectedTestIds((prev) =>
@@ -253,17 +237,6 @@ function EncounterForm({
   const [finalizing, setFinalizing] = useState(false)
 
   const handleFinalize = async () => {
-    if (!complaint.trim()) {
-      toast.error("Chief Complaint is required.")
-      setActiveSection("notes")
-      return
-    }
-    if (!diagnosis.trim()) {
-      toast.error("Diagnosis is required.")
-      setActiveSection("diagnosis")
-      return
-    }
-
     // Validate follow-up date format if provided
     let parsedFollowUp: string | undefined
     if (followUpDate) {
@@ -283,28 +256,54 @@ function EncounterForm({
       parsedFollowUp = `${yyyy}-${mm}-${dd}`
     }
 
+    // Validate custom procedures
+    for (const p of customProcedures) {
+      if (!p.name.trim() || !p.amount || isNaN(parseFloat(p.amount)) || parseFloat(p.amount) <= 0) {
+        toast.error("Each custom procedure needs a name and a valid amount.")
+        setActiveSection("procedures")
+        return
+      }
+    }
+
+    const validProcedures = customProcedures.map((p) => ({ name: p.name.trim(), amount: parseFloat(p.amount) }))
+
     setFinalizing(true)
     try {
-      await createTreatment({
-        patientId: appointment!.patientId,
-        doctorId: appointment!.doctorId,
-        appointmentId,
-        date: appointment!.date,
-        complaint,
-        clinicalNotes,
-        diagnosis,
-        prescribedInstructions,
-        testsRecommended: selectedTestIds,
-        doctorSummary,
-        followUpDate: parsedFollowUp,
-        attachments: [],
-        status: "completed",
-      })
-      await updateAppointmentStatus(appointmentId, "completed")
-      toast.success("Consultation finalized and treatment record saved.")
+      if (isEdit && existingTreatment) {
+        await updateTreatment(existingTreatment.id, {
+          complaint,
+          clinicalNotes,
+          diagnosis,
+          prescribedInstructions,
+          doctorSummary,
+          followUpDate: parsedFollowUp,
+          customProcedures: validProcedures,
+          newTestIds: selectedTestIds,
+        })
+        toast.success("Consultation record updated.")
+      } else {
+        await createTreatment({
+          patientId: appointment!.patientId,
+          doctorId: appointment!.doctorId,
+          appointmentId,
+          date: appointment!.date,
+          complaint,
+          clinicalNotes,
+          diagnosis,
+          prescribedInstructions,
+          testsRecommended: selectedTestIds,
+          doctorSummary,
+          followUpDate: parsedFollowUp,
+          attachments: [],
+          status: "completed",
+          customProcedures: validProcedures,
+        } as Parameters<typeof createTreatment>[0] & { customProcedures: { name: string; amount: number }[] })
+        await updateAppointmentStatus(appointmentId, "completed")
+        toast.success("Consultation finalized and treatment record saved.")
+      }
       router.push("/treatments")
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to finalize consultation.")
+      toast.error(err instanceof Error ? err.message : "Failed to save consultation.")
       setFinalizing(false)
     }
   }
@@ -320,12 +319,12 @@ function EncounterForm({
   return (
     <>
       <PageHeader
-        title={`Encounter — ${patient?.name ?? "Patient"}`}
-        description={`${appointment!.type} · ${appointment!.date} at ${appointment!.time} · Dr. ${doctor?.name ?? "Unknown"}`}
+        title={isEdit ? `Edit Encounter — ${patient?.name ?? "Patient"}` : `Encounter — ${patient?.name ?? "Patient"}`}
+        description={`${appointment!.type} · ${appointment!.date} at ${appointment!.time} · Dr. ${doctor?.name ?? "Unknown"}${isEdit ? " · Editing saved record" : ""}`}
         breadcrumbs={[
           { label: "Dashboard", href: "/" },
           { label: "Treatments", href: "/treatments" },
-          { label: "Clinical Encounter" },
+          { label: isEdit ? "Edit Encounter" : "Clinical Encounter" },
         ]}
       />
 
@@ -378,9 +377,7 @@ function EncounterForm({
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="complaint">
-                    Chief Complaint <span className="text-red-500">*</span>
-                  </Label>
+                  <Label htmlFor="complaint">Chief Complaint</Label>
                   <Textarea
                     id="complaint"
                     value={complaint}
@@ -425,9 +422,7 @@ function EncounterForm({
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="diagnosis">
-                    Primary Diagnosis <span className="text-red-500">*</span>
-                  </Label>
+                  <Label htmlFor="diagnosis">Primary Diagnosis</Label>
                   <Input
                     id="diagnosis"
                     value={diagnosis}
@@ -625,6 +620,66 @@ function EncounterForm({
               </div>
             </div>
           )}
+
+          {activeSection === "procedures" && (
+            <div className="flex flex-col gap-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Pencil className="h-4 w-4" />
+                    Custom Procedures
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-3">
+                  <p className="text-xs text-muted-foreground">
+                    Add custom procedures performed during this visit. Each will be added as a line item on the invoice.
+                  </p>
+                  {customProcedures.map((proc, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Input
+                        placeholder="Procedure name"
+                        value={proc.name}
+                        onChange={(e) => updateProcedure(i, "name", e.target.value)}
+                        className="flex-1"
+                      />
+                      <div className="relative w-32">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Rs.</span>
+                        <Input
+                          type="number"
+                          placeholder="Amount"
+                          value={proc.amount}
+                          onChange={(e) => updateProcedure(i, "amount", e.target.value)}
+                          className="pl-8"
+                          min={0}
+                        />
+                      </div>
+                      <button onClick={() => removeProcedure(i)} className="text-muted-foreground hover:text-destructive transition-colors">
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <Button variant="outline" size="sm" className="self-start gap-1.5" onClick={addProcedure}>
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Procedure
+                  </Button>
+                  {customProcedures.length > 0 && (
+                    <>
+                      <Separator className="my-1" />
+                      <div className="flex justify-between text-sm font-semibold">
+                        <span>Total Procedures Cost</span>
+                        <span>Rs. {totalProcedureCost.toLocaleString()}</span>
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+              <div className="flex justify-start">
+                <Button variant="outline" size="sm" onClick={() => setActiveSection("tests")}>
+                  ← Back
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Right: Patient & Appointment Info ───────────────────── */}
@@ -732,7 +787,7 @@ function EncounterForm({
           <div className="flex flex-col gap-2">
             <Button onClick={handleFinalize} className="w-full" disabled={finalizing}>
               <CheckCircle2 className="mr-1 h-4 w-4" />
-              {finalizing ? "Saving…" : "Finalize Consultation"}
+              {finalizing ? "Saving…" : isEdit ? "Save Changes" : "Finalize Consultation"}
             </Button>
             <Button variant="outline" className="w-full" asChild disabled={finalizing}>
               <Link href="/treatments">Cancel</Link>

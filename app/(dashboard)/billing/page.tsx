@@ -181,19 +181,21 @@ export default function BillingPage() {
 
       {/* ── Summary Stat Cards ── */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
-        <Card className="border-l-4 border-l-emerald-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Revenue</p>
-                <p className="text-2xl font-bold text-foreground mt-1">{amountsHidden ? `Rs. ${MASKED}` : `Rs. ${totalRevenue.toLocaleString()}`}</p>
+        {currentUser?.role === "admin" && (
+          <Card className="border-l-4 border-l-emerald-500">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Revenue</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{amountsHidden ? `Rs. ${MASKED}` : `Rs. ${totalRevenue.toLocaleString()}`}</p>
+                </div>
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
+                  <TrendingUp className="h-5 w-5 text-emerald-600" />
+                </div>
               </div>
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
-                <TrendingUp className="h-5 w-5 text-emerald-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="border-l-4 border-l-blue-500">
           <CardContent className="p-4">
