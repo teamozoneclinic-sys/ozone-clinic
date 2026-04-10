@@ -34,6 +34,7 @@ import {
   CalendarDays,
   Users,
   Receipt,
+  Pencil,
 } from "lucide-react"
 import { getPKTDateString } from "@/lib/pkt"
 
@@ -206,9 +207,11 @@ function TreatmentDashboard() {
                   {/* Action */}
                   <div className="flex flex-col gap-1.5 pt-1">
                     {isFinalized ? (
-                      <Button size="sm" disabled className="w-full">
-                        <CheckCircle2 className="mr-1 h-4 w-4" />
-                        Encounter Finalized
+                      <Button size="sm" variant="outline" className="w-full" asChild>
+                        <Link href={`/treatments/encounter/${apt.id}`}>
+                          <Pencil className="mr-1 h-4 w-4" />
+                          Edit Encounter
+                        </Link>
                       </Button>
                     ) : isCleared ? (
                       <Button size="sm" className="w-full" asChild>

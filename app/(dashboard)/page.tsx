@@ -224,8 +224,8 @@ export default function DashboardPage() {
           />
         )}
 
-        {/* Revenue card — custom with eye toggle (billing roles only) */}
-        {canSeeBilling && (
+        {/* Revenue card — admin only */}
+        {canSeeBilling && currentUser?.role === "admin" && (
           <Card className="border-border/60">
             <CardContent className="p-6">
               <div className="flex items-start justify-between">
