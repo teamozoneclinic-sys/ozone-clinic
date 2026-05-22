@@ -14,6 +14,8 @@ export interface IAppointment extends Document {
   doctorNotes: string
   referral: string
   invoiceId: string
+  whatsappAcknowledgedBy: string
+  whatsappAcknowledgedAt: string
   createdAt: Date
   updatedAt: Date
 }
@@ -36,6 +38,8 @@ const AppointmentSchema = new Schema<IAppointment>(
     doctorNotes: { type: String, default: "" },
     referral: { type: String, default: "" },
     invoiceId: { type: String, default: "" },
+    whatsappAcknowledgedBy: { type: String, default: "" },
+    whatsappAcknowledgedAt: { type: String, default: "" },
   },
   {
     timestamps: true,

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo } from "react"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { StatCard } from "@/components/stat-card"
@@ -24,22 +24,6 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { getPKTDateString } from "@/lib/pkt"
-
-type WaRequest = {
-  _id: string
-  name: string
-  dateOfBirth: string
-  phone: string
-  status: "pending" | "contacted" | "booked" | "cancelled"
-  createdAt: string
-}
-
-const STATUS_COLORS: Record<WaRequest["status"], string> = {
-  pending: "bg-amber-100 text-amber-700",
-  contacted: "bg-blue-100 text-blue-700",
-  booked: "bg-emerald-100 text-emerald-700",
-  cancelled: "bg-red-100 text-red-700",
-}
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
@@ -109,21 +93,15 @@ export default function DashboardPage() {
   const totalUnpaid = unpaidInvoices.reduce((sum, inv) => sum + inv.balance, 0)
 
   const [revenueHidden, setRevenueHidden] = useState(true)
-  const [waRequests, setWaRequests] = useState<WaRequest[]>([])
 
-  useEffect(() => {
-    fetch("/api/appointment-requests")
-      .then((r) => r.json())
-      .then((d) => setWaRequests(d.data ?? []))
-      .catch(() => {})
-    const timer = setInterval(() => {
-      fetch("/api/appointment-requests")
-        .then((r) => r.json())
-        .then((d) => setWaRequests(d.data ?? []))
-        .catch(() => {})
-    }, 30_000)
-    return () => clearInterval(timer)
-  }, [])
+  // WhatsApp-bot bookings, newest first (live from the store)
+  const waBookings = useMemo(
+    () =>
+      appointments
+        .filter((a) => a.referral === "WhatsApp Bot")
+        .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")),
+    [appointments]
+  )
 
   // ── Doctor schedule view (Today / Tomorrow / Next 7 Days) ──────────────
   const [scheduleView, setScheduleView] = useState<ScheduleView>("today")
@@ -366,9 +344,9 @@ export default function DashboardPage() {
                     <MessageCircle className="h-4 w-4 text-green-600" />
                   </div>
                   <div>
-                    <CardTitle className="text-base font-semibold">WA Requests</CardTitle>
+                    <CardTitle className="text-base font-semibold">WhatsApp Bookings</CardTitle>
                     <CardDescription className="text-xs">
-                      {waRequests.filter((r) => r.status === "pending").length} pending
+                      {waBookings.filter((b) => !b.whatsappAcknowledgedBy).length} awaiting acknowledgement
                     </CardDescription>
                   </div>
                 </div>
@@ -380,35 +358,45 @@ export default function DashboardPage() {
               </div>
             </CardHeader>
             <CardContent className="px-4 pb-4 flex flex-col gap-2">
-              {waRequests.length === 0 ? (
+              {waBookings.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">
-                  No appointment requests yet.
+                  No WhatsApp bookings yet.
                 </p>
               ) : (
-                waRequests.slice(0, 5).map((req) => (
-                  <Link
-                    key={req._id}
-                    href="/appointment-requests"
-                    className="flex items-start gap-3 rounded-lg border border-border/60 px-3 py-2.5 hover:bg-accent/30 transition-colors"
-                  >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-100 text-xs font-bold text-green-700">
-                      {req.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{req.name}</p>
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Phone className="h-3 w-3" />
-                        {req.phone}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full capitalize ${STATUS_COLORS[req.status]}`}>
-                        {req.status}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">{timeAgo(req.createdAt)}</span>
-                    </div>
-                  </Link>
-                ))
+                waBookings.slice(0, 5).map((apt) => {
+                  const patient = getPatient(apt.patientId)
+                  const acknowledged = !!apt.whatsappAcknowledgedBy
+                  return (
+                    <Link
+                      key={apt.id}
+                      href="/appointment-requests"
+                      className="flex items-start gap-3 rounded-lg border border-border/60 px-3 py-2.5 hover:bg-accent/30 transition-colors"
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-100 text-xs font-bold text-green-700">
+                        {(patient?.name ?? "?").charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">
+                          {patient?.name ?? "Unknown patient"}
+                        </p>
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          {patient?.phone ?? "—"}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                            acknowledged ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                          }`}
+                        >
+                          {acknowledged ? "Acknowledged" : "New"}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">{timeAgo(apt.createdAt)}</span>
+                      </div>
+                    </Link>
+                  )
+                })
               )}
             </CardContent>
           </Card>

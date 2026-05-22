@@ -106,7 +106,7 @@ function downloadCSV(
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
-  const { invoices, doctors, patients, getPatient, getDoctor } = useStore()
+  const { invoices, doctors, patients, getPatient, getDoctor, currentUser } = useStore()
 
   // ── Filters ──────────────────────────────────────────────────────────────
   const [period, setPeriod] = useState<"today" | "week" | "month" | "custom">("today")
@@ -465,12 +465,14 @@ export default function ReportsPage() {
           description={`${filteredPayments.length} payment${filteredPayments.length !== 1 ? "s" : ""} in period`}
           icon={DollarSign}
         />
-        <StatCard
-          title="Total Revenue"
-          value={`Rs. ${totalRevenue.toLocaleString()}`}
-          description="All-time payments received"
-          icon={TrendingUp}
-        />
+        {currentUser?.role === "admin" && (
+          <StatCard
+            title="Total Revenue"
+            value={`Rs. ${totalRevenue.toLocaleString()}`}
+            description="All-time payments received"
+            icon={TrendingUp}
+          />
+        )}
         <StatCard
           title="Outstanding Balance"
           value={`Rs. ${totalOutstanding.toLocaleString()}`}

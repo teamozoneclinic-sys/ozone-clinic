@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import WhatsAppSession from "@/lib/models/WhatsAppSession"
-import AppointmentRequest from "@/lib/models/AppointmentRequest"
 import Patient from "@/lib/models/Patient"
 import Appointment from "@/lib/models/Appointment"
 import Invoice from "@/lib/models/Invoice"
@@ -192,15 +191,6 @@ async function sendTimeList(from: string, lang: Lang) {
   await sendWhatsAppList(from, t("choose_time", lang), t("btn_time", lang), rows, "🕐 Choose a Time")
 }
 
-// Exception fallback — capture the lead so staff can follow up manually
-async function createFallbackRequest(name: string, dob: string, phone: string) {
-  try {
-    await AppointmentRequest.create({ name: name || "WhatsApp Patient", dateOfBirth: dob || "—", phone })
-  } catch (err) {
-    console.error("[Bot] Fallback request creation failed:", err)
-  }
-}
-
 // ── Meta webhook verification ────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -274,7 +264,6 @@ export async function POST(request: NextRequest) {
           const hasProcedures = await sendProcedureList(from, lang)
           if (!hasProcedures) {
             await sendWhatsApp(from, t("no_procedures", lang))
-            await createFallbackRequest(String(existing.name), "—", from)
             await WhatsAppSession.deleteOne({ phone: from })
             return new NextResponse("OK", { status: 200 })
           }
@@ -359,7 +348,6 @@ export async function POST(request: NextRequest) {
         const hasProcedures = await sendProcedureList(from, lang)
         if (!hasProcedures) {
           await sendWhatsApp(from, t("no_procedures", lang))
-          await createFallbackRequest(name, ageToDOB(age), from)
           await WhatsAppSession.deleteOne({ phone: from })
           return new NextResponse("OK", { status: 200 })
         }
@@ -370,7 +358,6 @@ export async function POST(request: NextRequest) {
         console.log(`[Bot] ✅ Patient registered via WhatsApp — ${name} (${from})`)
       } catch (err) {
         console.error("[Bot] Patient registration failed:", err)
-        await createFallbackRequest(name, ageToDOB(age), from)
         await sendWhatsApp(from, t("booking_failed", lang))
         await WhatsAppSession.deleteOne({ phone: from })
       }
@@ -468,7 +455,6 @@ export async function POST(request: NextRequest) {
       // Guard against an incomplete / stale session
       if (!patientId || !date || !time || !session.procedureId || date < getPKTDateString()) {
         await sendWhatsApp(from, t("booking_failed", lang))
-        await createFallbackRequest(session.collectedName || "WhatsApp Patient", "—", from)
         await WhatsAppSession.deleteOne({ phone: from })
         return new NextResponse("OK", { status: 200 })
       }
@@ -520,7 +506,6 @@ export async function POST(request: NextRequest) {
         await WhatsAppSession.deleteOne({ phone: from })
       } catch (err) {
         console.error("[Bot] Appointment booking failed:", err)
-        await createFallbackRequest(session.collectedName || "WhatsApp Patient", "—", from)
         await sendWhatsApp(from, t("booking_failed", lang))
         await WhatsAppSession.deleteOne({ phone: from })
       }

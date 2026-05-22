@@ -1,173 +1,186 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useMemo, useState } from "react"
+import Link from "next/link"
+import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { StatusBadge } from "@/components/status-badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { MessageCircle, BadgeCheck, CheckCircle2, Phone, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { MessageCircle, Phone, Calendar, User } from "lucide-react"
 
-interface AppointmentRequest {
-  _id: string
-  name: string
-  dateOfBirth: string
-  phone: string
-  status: "pending" | "contacted" | "booked" | "cancelled"
-  createdAt: string
-}
+export default function WhatsAppBookingsPage() {
+  const { appointments, getPatient, getDoctor, getInvoice, acknowledgeAppointment } = useStore()
+  const [busyId, setBusyId] = useState<string | null>(null)
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  contacted: "bg-blue-100 text-blue-800 border-blue-200",
-  booked: "bg-green-100 text-green-800 border-green-200",
-  cancelled: "bg-red-100 text-red-800 border-red-200",
-}
+  // Appointments booked through the WhatsApp bot, newest first
+  const bookings = useMemo(
+    () =>
+      appointments
+        .filter((a) => a.referral === "WhatsApp Bot")
+        .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")),
+    [appointments]
+  )
+  const pendingCount = bookings.filter((b) => !b.whatsappAcknowledgedBy).length
 
-export default function AppointmentRequestsPage() {
-  const [requests, setRequests] = useState<AppointmentRequest[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    fetch("/api/appointment-requests")
-      .then((r) => r.json())
-      .then((d) => setRequests(d.data ?? []))
-      .finally(() => setLoading(false))
-  }, [])
-
-  const updateStatus = async (id: string, status: string) => {
-    const res = await fetch("/api/appointment-requests", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    })
-    if (res.ok) {
-      setRequests((prev) =>
-        prev.map((r) => (r._id === id ? { ...r, status: status as AppointmentRequest["status"] } : r))
-      )
-      toast.success("Status updated")
-    } else {
-      toast.error("Failed to update status")
+  const handleAcknowledge = async (id: string) => {
+    setBusyId(id)
+    try {
+      await acknowledgeAppointment(id)
+      toast.success("Booking acknowledged.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to acknowledge.")
+    } finally {
+      setBusyId(null)
     }
   }
 
-  const pending = requests.filter((r) => r.status === "pending")
-  const others = requests.filter((r) => r.status !== "pending")
-
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <>
       <PageHeader
-        title="WhatsApp Appointment Requests"
-        description="Patients who requested an appointment via WhatsApp bot"
+        title="WhatsApp Bookings"
+        description="Appointments booked by patients through the WhatsApp bot."
+        breadcrumbs={[{ label: "Dashboard", href: "/" }, { label: "WhatsApp Bookings" }]}
       />
 
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      ) : requests.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-3 text-center text-muted-foreground">
-          <MessageCircle className="h-10 w-10 opacity-30" />
-          <p className="text-sm">No appointment requests yet.</p>
-          <p className="text-xs">Requests will appear here when patients message via WhatsApp.</p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-6">
-          {pending.length > 0 && (
-            <div className="flex flex-col gap-3">
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                Pending ({pending.length})
-              </h2>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {pending.map((req) => (
-                  <RequestCard key={req._id} req={req} onStatusChange={updateStatus} />
-                ))}
-              </div>
+      {/* Summary */}
+      <div className="mb-6 grid gap-4 sm:grid-cols-2">
+        <Card className="border-l-4 border-l-green-500">
+          <CardContent className="flex items-center justify-between p-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Total WhatsApp Bookings
+              </p>
+              <p className="mt-1 text-2xl font-bold">{bookings.length}</p>
             </div>
-          )}
-
-          {others.length > 0 && (
-            <div className="flex flex-col gap-3">
-              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                All Requests
-              </h2>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {others.map((req) => (
-                  <RequestCard key={req._id} req={req} onStatusChange={updateStatus} />
-                ))}
-              </div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-100">
+              <MessageCircle className="h-5 w-5 text-green-600" />
             </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function RequestCard({
-  req,
-  onStatusChange,
-}: {
-  req: AppointmentRequest
-  onStatusChange: (id: string, status: string) => void
-}) {
-  const whatsappLink = `https://wa.me/${req.phone}`
-  const receivedAt = new Date(req.createdAt).toLocaleString("en-PK", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  })
-
-  return (
-    <Card className="border shadow-sm">
-      <CardContent className="p-4 flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 font-semibold text-sm">
-              <User className="h-3.5 w-3.5 text-muted-foreground" />
-              {req.name}
+          </CardContent>
+        </Card>
+        <Card className="border-l-4 border-l-amber-500">
+          <CardContent className="flex items-center justify-between p-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Awaiting Acknowledgement
+              </p>
+              <p className="mt-1 text-2xl font-bold text-amber-600">{pendingCount}</p>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Calendar className="h-3 w-3" />
-              DOB: {req.dateOfBirth}
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100">
+              <BadgeCheck className="h-5 w-5 text-amber-600" />
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Phone className="h-3 w-3" />
-              +{req.phone}
-            </div>
-          </div>
-          <Badge className={`text-xs border ${STATUS_COLORS[req.status]}`} variant="outline">
-            {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
-          </Badge>
-        </div>
+          </CardContent>
+        </Card>
+      </div>
 
-        <p className="text-xs text-muted-foreground">Received: {receivedAt}</p>
-
-        <div className="flex items-center gap-2">
-          <Select value={req.status} onValueChange={(v) => onStatusChange(req._id, v)}>
-            <SelectTrigger className="h-8 text-xs flex-1">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="contacted">Contacted</SelectItem>
-              <SelectItem value="booked">Booked</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Button asChild size="sm" variant="outline" className="h-8 px-3 text-xs gap-1.5">
-            <a href={whatsappLink} target="_blank" rel="noopener noreferrer">
-              <MessageCircle className="h-3.5 w-3.5" />
-              Chat
-            </a>
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/40">
+                <TableHead>Patient</TableHead>
+                <TableHead className="hidden md:table-cell">Procedure</TableHead>
+                <TableHead className="hidden sm:table-cell">Date &amp; Time</TableHead>
+                <TableHead className="hidden lg:table-cell">Doctor</TableHead>
+                <TableHead className="text-center">Status</TableHead>
+                <TableHead className="text-right">Acknowledgement</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {bookings.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-32 text-center">
+                    <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                      <MessageCircle className="h-8 w-8 opacity-40" />
+                      <p className="text-sm">No WhatsApp bookings yet.</p>
+                      <p className="text-xs">
+                        Appointments booked by patients via the WhatsApp bot will appear here.
+                      </p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                bookings.map((apt) => {
+                  const patient = getPatient(apt.patientId)
+                  const doctor = getDoctor(apt.doctorId)
+                  const invoice = getInvoice(apt.invoiceId)
+                  const procedure =
+                    invoice?.lineItems.find((li) => li.category === "procedure")?.description ?? "—"
+                  const acknowledged = !!apt.whatsappAcknowledgedBy
+                  return (
+                    <TableRow key={apt.id} className={acknowledged ? "" : "bg-amber-50/40"}>
+                      <TableCell>
+                        {patient ? (
+                          <Link href={`/patients/${apt.patientId}`} className="group flex flex-col">
+                            <span className="font-medium transition-colors group-hover:text-primary">
+                              {patient.name}
+                            </span>
+                            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <Phone className="h-3 w-3" />
+                              {patient.phone}
+                            </span>
+                          </Link>
+                        ) : (
+                          <span className="text-muted-foreground">Unknown patient</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell text-sm">{procedure}</TableCell>
+                      <TableCell className="hidden sm:table-cell text-sm whitespace-nowrap">
+                        {apt.date} · {apt.time}
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell text-sm">
+                        {doctor?.name ?? <span className="text-amber-600">Unassigned</span>}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <StatusBadge status={apt.status} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {acknowledged ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600"
+                            title={
+                              apt.whatsappAcknowledgedAt
+                                ? `Acknowledged ${new Date(apt.whatsappAcknowledgedAt).toLocaleString()}`
+                                : undefined
+                            }
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Seen by {apt.whatsappAcknowledgedBy}
+                          </span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
+                            disabled={busyId === apt.id}
+                            onClick={() => handleAcknowledge(apt.id)}
+                          >
+                            {busyId === apt.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <BadgeCheck className="h-3.5 w-3.5" />
+                            )}
+                            Acknowledge
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </>
   )
 }

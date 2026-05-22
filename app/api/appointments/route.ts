@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
       !!discount &&
       Number.isFinite(discountAmount) &&
       discountAmount > 0 &&
-      ["admin", "manager"].includes(user.role)
+      ["admin", "manager", "receptionist"].includes(user.role)
     if (discountApplied) {
       lineItems.push({
         id: `li_disc_${Date.now()}`,

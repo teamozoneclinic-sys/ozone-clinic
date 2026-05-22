@@ -13,13 +13,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { SidebarMenuButton } from "@/components/ui/sidebar"
-import { ChevronsUpDown, Shield, Stethoscope, UserCog, Calculator, LogOut } from "lucide-react"
+import { ChevronsUpDown, Shield, Stethoscope, UserCog, Calculator, Headset, LogOut } from "lucide-react"
 
 const roleConfig: Record<Role, { label: string; icon: typeof Shield; color: string }> = {
   admin: { label: "Admin", icon: Shield, color: "text-red-600" },
   doctor: { label: "Doctor", icon: Stethoscope, color: "text-teal-600" },
   manager: { label: "Manager", icon: UserCog, color: "text-blue-600" },
   accounts: { label: "Accounts", icon: Calculator, color: "text-amber-600" },
+  receptionist: { label: "Receptionist", icon: Headset, color: "text-purple-600" },
 }
 
 export function RoleSwitcher() {

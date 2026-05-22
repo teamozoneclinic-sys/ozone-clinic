@@ -8,8 +8,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const user = await getRequestUser(request)
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  if (!["admin", "manager"].includes(user.role))
-    return NextResponse.json({ error: "Only admin and manager can apply discounts" }, { status: 403 })
+  if (!["admin", "manager", "receptionist"].includes(user.role))
+    return NextResponse.json({ error: "Only admin, manager and receptionist can apply discounts" }, { status: 403 })
 
   await connectDB()
   const { id } = await params

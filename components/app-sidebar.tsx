@@ -55,7 +55,7 @@ const financeNav: NavItem[] = [
 
 const adminNav: NavItem[] = [
   { title: "Doctors", href: "/doctors", icon: UserRound, permission: "doctors.view" },
-  { title: "WA Requests", href: "/appointment-requests", icon: MessageCircle, permission: "appointments.view" },
+  { title: "WA Bookings", href: "/appointment-requests", icon: MessageCircle, permission: "appointments.view" },
   { title: "Settings", href: "/settings", icon: Settings, permission: "settings.view" },
   { title: "Audit Log", href: "/audit", icon: ScrollText, permission: "audit.view" },
 ]

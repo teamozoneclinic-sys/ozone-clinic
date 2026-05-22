@@ -99,6 +99,7 @@ const ROLE_COLORS: Record<string, string> = {
   doctor: "bg-teal-100 text-teal-800 border-teal-200",
   manager: "bg-blue-100 text-blue-800 border-blue-200",
   accounts: "bg-amber-100 text-amber-800 border-amber-200",
+  receptionist: "bg-purple-100 text-purple-800 border-purple-200",
 }
 
 export default function SettingsPage() {
@@ -921,6 +922,7 @@ function EditDoctorModal({
    ───────────────────────────────────────────────────────────────── */
 
 const CREATABLE_ROLES: { value: Role; label: string; description: string }[] = [
+  { value: "receptionist", label: "Receptionist", description: "Front desk — patients, appointments & billing" },
   { value: "manager", label: "Manager", description: "Operations & scheduling" },
   { value: "accounts", label: "Accountant", description: "Billing & financial reports" },
 ]

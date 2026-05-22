@@ -4,7 +4,6 @@ import React, {
   createContext,
   useContext,
   useState,
-  useRef,
   useCallback,
   useEffect,
   type ReactNode,
@@ -95,6 +94,7 @@ interface StoreState {
   deleteAppointment: (id: string, reason?: string) => Promise<void>
   updateAppointment: (id: string, data: Partial<Pick<Appointment, "date" | "time" | "duration">>) => Promise<void>
   assignDoctor: (appointmentId: string, doctorId: string) => Promise<void>
+  acknowledgeAppointment: (appointmentId: string) => Promise<void>
   refreshLiveData: () => Promise<void>
   refetch: () => Promise<void>
 
@@ -134,8 +134,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [testCatalog, setTestCatalog] = useState<TestCatalogItem[]>([])
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
   const [clinicSettings, setClinicSettings] = useState<ClinicInfo>(DEFAULT_CLINIC_INFO)
-  const [pendingRequestsCount, setPendingRequestsCount] = useState(0)
-  const prevRequestsCountRef = useRef(-1) // -1 = initial load, skip notification
 
   // ── Fetch all data ────────────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
@@ -478,6 +476,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     []
   )
 
+  // Acknowledge a WhatsApp-bot booking — server records who/when + audits it
+  const acknowledgeAppointment = useCallback(async (appointmentId: string) => {
+    const res = await apiFetch<{ data: Appointment }>(
+      `/api/appointments/${appointmentId}/acknowledge`,
+      { method: "POST" }
+    )
+    setAppointments((prev) => prev.map((a) => (a.id === appointmentId ? res.data : a)))
+  }, [])
+
   // ── Live data refresh (polls appointments + treatments + invoices) ─────
   const refreshLiveData = useCallback(async () => {
     try {
@@ -515,38 +522,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setClinicSettings(res.data)
   }, [])
 
-  // ── WA appointment requests polling ───────────────────────────────────
-  const pollRequestsCount = useCallback(async () => {
-    try {
-      const res = await apiFetch<{ data: Array<{ status: string }> }>("/api/appointment-requests")
-      const count = res.data.filter((r) => r.status === "pending").length
-      if (prevRequestsCountRef.current >= 0 && count > prevRequestsCountRef.current) {
-        const diff = count - prevRequestsCountRef.current
-        if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-          new Notification(`New WA Request${diff > 1 ? "s" : ""}`, {
-            body: `${diff} new appointment request${diff > 1 ? "s" : ""} pending from WhatsApp`,
-            icon: "/favicon.ico",
-          })
-        }
-      }
-      prevRequestsCountRef.current = count
-      setPendingRequestsCount(count)
-    } catch {
-      // silent — background poll must not disrupt UI
-    }
-  }, [])
-
-  useEffect(() => {
-    // Request browser notification permission on first load
-    if (typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission()
-    }
-    pollRequestsCount()
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") pollRequestsCount()
-    }, 30_000)
-    return () => clearInterval(timer)
-  }, [pollRequestsCount])
+  // WhatsApp-bot bookings still awaiting staff acknowledgement — drives the
+  // sidebar badge. Derived from appointments, which are already polled live.
+  const pendingRequestsCount = appointments.filter(
+    (a) => a.referral === "WhatsApp Bot" && !a.whatsappAcknowledgedBy
+  ).length
 
   // Update document title with pending count
   useEffect(() => {
@@ -639,6 +619,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         deleteAppointment,
         updateAppointment,
         assignDoctor,
+        acknowledgeAppointment,
         refreshLiveData,
         refetch: fetchAll,
         getPatient,

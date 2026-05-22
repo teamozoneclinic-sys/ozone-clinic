@@ -2,7 +2,7 @@
 // Clinic Management System - Core Type Definitions
 // ============================================================
 
-export type Role = "admin" | "doctor" | "manager" | "accounts"
+export type Role = "admin" | "doctor" | "manager" | "accounts" | "receptionist"
 
 export interface User {
   id: string
@@ -73,6 +73,9 @@ export interface Appointment {
   doctorNotes: string
   referral: string
   invoiceId: string
+  /** Set when a staff member acknowledges a WhatsApp-bot booking. */
+  whatsappAcknowledgedBy?: string
+  whatsappAcknowledgedAt?: string
   createdAt: string
   updatedAt: string
 }

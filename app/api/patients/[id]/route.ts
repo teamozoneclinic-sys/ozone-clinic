@@ -28,7 +28,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRequestUser(request)
-  if (!user || user.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  if (!user || !["admin", "manager"].includes(user.role))
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
 
   await connectDB()
   const { id } = await params
