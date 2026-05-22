@@ -71,6 +71,7 @@ export interface Appointment {
   notes: string
   receptionNotes: string
   doctorNotes: string
+  referral: string
   invoiceId: string
   createdAt: string
   updatedAt: string
@@ -116,6 +117,8 @@ export interface Invoice {
   totalAmount: number
   paidAmount: number
   balance: number
+  /** Amount owed back to the patient when a paid invoice is edited down below what was paid. */
+  refundDue?: number
   status: InvoiceStatus
   voidedReason?: string
   payments: Payment[]

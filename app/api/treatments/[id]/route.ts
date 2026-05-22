@@ -46,8 +46,8 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         if (invoice) {
           const testLineItems = tests.map((t: { _id: { toString(): string }; name: string; price: number }) => ({
             id: `li_test_${Date.now()}_${t._id.toString().slice(-6)}`,
-            description: `Lab Test: ${t.name}`,
-            category: "test",
+            description: `Procedure: ${t.name}`,
+            category: "procedure",
             amount: t.price,
             quantity: 1,
           }))

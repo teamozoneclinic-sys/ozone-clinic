@@ -1,5 +1,17 @@
 import mongoose, { Schema, Document, Model } from "mongoose"
 
+/** Full years between a YYYY-MM-DD date of birth and today. */
+function computeAge(dob: string): number {
+  if (!dob) return 0
+  const birth = new Date(dob)
+  if (isNaN(birth.getTime())) return 0
+  const today = new Date()
+  let age = today.getFullYear() - birth.getFullYear()
+  const m = today.getMonth() - birth.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
+  return Math.max(0, age)
+}
+
 export interface IPatient extends Document {
   _id: mongoose.Types.ObjectId
   name: string
@@ -72,6 +84,9 @@ const PatientSchema = new Schema<IPatient>(
         ret.id = ret._id.toString()
         delete ret._id
         delete ret.__v
+        // Age is always derived from the date of birth, so patient records
+        // stay current automatically as years pass — no scheduled job needed.
+        if (ret.dateOfBirth) ret.age = computeAge(ret.dateOfBirth)
         return ret
       },
     },

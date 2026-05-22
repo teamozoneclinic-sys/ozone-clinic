@@ -3,14 +3,15 @@ import { connectDB } from "@/lib/mongodb"
 import Doctor from "@/lib/models/Doctor"
 import User from "@/lib/models/User"
 import { getRequestUser } from "@/lib/auth"
+import { CLINIC_EMAIL_DOMAIN } from "@/lib/utils"
 
 // Derive email + password from a doctor's name
-// e.g. "Dr. Ahmed Khan" → email: "dr.ahmedkhan@clinic.com", password: "ahmedkhan123"
+// e.g. "Dr. Ahmed Khan" → email: "dr.ahmedkhan@ozoneclinic.com", password: "ahmedkhan123"
 function deriveCredentials(name: string) {
   const stripped = name.replace(/^dr\.?\s*/i, "").trim()
   const slug = stripped.toLowerCase().replace(/\s+/g, "")
   return {
-    email: `dr.${slug}@clinic.com`,
+    email: `dr.${slug}@${CLINIC_EMAIL_DOMAIN}`,
     password: `${slug}123`,
   }
 }

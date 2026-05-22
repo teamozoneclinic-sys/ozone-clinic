@@ -210,7 +210,7 @@ function TreatmentDashboard() {
                       <Button size="sm" variant="outline" className="w-full" asChild>
                         <Link href={`/treatments/encounter/${apt.id}`}>
                           <Pencil className="mr-1 h-4 w-4" />
-                          Edit Encounter
+                          Edit Consultation
                         </Link>
                       </Button>
                     ) : isCleared ? (

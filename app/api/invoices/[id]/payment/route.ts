@@ -47,7 +47,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   Promise.all([
     Patient.findById(invoice.patientId),
     ClinicSettings.findOne({}),
-    Doctor.findById(invoice.doctorId),
+    invoice.doctorId ? Doctor.findById(invoice.doctorId) : Promise.resolve(null),
   ]).then(async ([patient, clinic, doctor]) => {
     if (!patient?.phone) return
     const invoiceRef = invoice._id.toString().slice(-8).toUpperCase()

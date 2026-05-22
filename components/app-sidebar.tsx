@@ -113,7 +113,8 @@ function NavGroup({
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
-  const { hasPermission, clinicSettings, pendingRequestsCount } = useStore()
+  const { hasPermission, clinicSettings, pendingRequestsCount, getUnpaidInvoices } = useStore()
+  const unpaidCount = getUnpaidInvoices().length
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -143,7 +144,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
       </SidebarHeader>
       <SidebarContent>
         <NavGroup label="Clinical" items={mainNav} pathname={pathname} hasPermission={hasPermission} />
-        <NavGroup label="Finance" items={financeNav} pathname={pathname} hasPermission={hasPermission} />
+        <NavGroup label="Finance" items={financeNav} pathname={pathname} hasPermission={hasPermission} badges={{ "/billing": unpaidCount }} />
         <NavGroup label="Administration" items={adminNav} pathname={pathname} hasPermission={hasPermission} badges={{ "/appointment-requests": pendingRequestsCount }} />
       </SidebarContent>
       <SidebarFooter>

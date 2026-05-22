@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import User from "@/lib/models/User"
 import { getRequestUser } from "@/lib/auth"
+import { toClinicEmail } from "@/lib/utils"
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRequestUser(request)
@@ -16,7 +17,12 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 })
 
     if (body.name) target.name = body.name.trim()
-    if (body.email) target.email = body.email.trim().toLowerCase()
+    if (body.email) {
+      // Every user account is forced onto the clinic email domain
+      const normalized = toClinicEmail(body.email)
+      if (!normalized) return NextResponse.json({ error: "A valid email is required" }, { status: 400 })
+      target.email = normalized
+    }
     // Allow password update — pre-save hook will hash it
     if (body.password && body.password.length >= 6) {
       target.password = body.password

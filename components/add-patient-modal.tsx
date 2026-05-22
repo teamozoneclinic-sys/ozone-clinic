@@ -24,7 +24,7 @@ import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
 import { BLOOD_GROUPS } from "@/lib/constants"
 import { UserPlus } from "lucide-react"
-import { calcAge } from "@/lib/utils"
+import { ageToDOB } from "@/lib/utils"
 
 interface AddPatientModalProps {
   open: boolean
@@ -36,7 +36,7 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
   const [gender, setGender] = useState<"male" | "female" | "">("")
-  const [dateOfBirth, setDateOfBirth] = useState("")
+  const [age, setAge] = useState("")
   const [bloodGroup, setBloodGroup] = useState("")
   const [doctorId, setDoctorId] = useState("")
   const [email, setEmail] = useState("")
@@ -60,14 +60,19 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
   }
 
   const reset = () => {
-    setName(""); setPhone(""); setGender(""); setDateOfBirth("")
+    setName(""); setPhone(""); setGender(""); setAge("")
     setBloodGroup(""); setDoctorId(""); setEmail(""); setAddress(""); setNotes("")
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!name || !phone || !gender || !dateOfBirth) {
+    if (!name || !phone || !gender || !age) {
       toast.error("Please fill in all required fields.")
+      return
+    }
+    const ageNum = parseInt(age, 10)
+    if (isNaN(ageNum) || ageNum < 0 || ageNum > 120) {
+      toast.error("Please enter a valid age between 0 and 120.")
       return
     }
     const digits = phone.replace(/\D/g, "")
@@ -88,8 +93,8 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
         phone,
         email: email.trim(),
         gender: gender as "male" | "female",
-        dateOfBirth,
-        age: calcAge(dateOfBirth),
+        dateOfBirth: ageToDOB(ageNum),
+        age: ageNum,
         address: address.trim(),
         bloodGroup: bloodGroup || undefined,
         tags: [],
@@ -158,7 +163,7 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
             </div>
           </div>
 
-          {/* ── Row 2: Gender (×2) | DOB (×1) | Blood Group (×1) ── */}
+          {/* ── Row 2: Gender (×2) | Age (×1) | Blood Group (×1) ── */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="col-span-2 flex flex-col gap-1.5">
               <Label className="text-sm font-medium">
@@ -191,16 +196,19 @@ export function AddPatientModal({ open, onOpenChange }: AddPatientModalProps) {
             </div>
 
             <div className="col-span-1 flex flex-col gap-1.5">
-              <Label htmlFor="p-dob" className="text-sm font-medium">
-                Date of Birth <span className="text-red-500">*</span>
+              <Label htmlFor="p-age" className="text-sm font-medium">
+                Age <span className="text-red-500">*</span>
               </Label>
               <Input
-                id="p-dob"
-                type="date"
-                value={dateOfBirth}
-                onChange={(e) => setDateOfBirth(e.target.value)}
+                id="p-age"
+                type="number"
+                inputMode="numeric"
+                value={age}
+                onChange={(e) => setAge(e.target.value)}
+                placeholder="Years"
+                min={0}
+                max={120}
                 className="h-10"
-                max={new Date().toISOString().split("T")[0]}
               />
             </div>
 

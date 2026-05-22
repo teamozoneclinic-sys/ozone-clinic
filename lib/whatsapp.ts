@@ -151,6 +151,44 @@ export async function sendWhatsAppWithFileUrl(
   })
 }
 
+// Send an interactive list message — a tappable menu (max 10 rows).
+// Each row: id (≤200 chars), title (≤24 chars), optional description (≤72 chars).
+export async function sendWhatsAppList(
+  phone: string,
+  bodyText: string,
+  buttonLabel: string,
+  rows: Array<{ id: string; title: string; description?: string }>,
+  headerText?: string,
+): Promise<boolean> {
+  try {
+    await metaPost({
+      to: formatPhone(phone),
+      type: "interactive",
+      interactive: {
+        type: "list",
+        ...(headerText ? { header: { type: "text", text: headerText.slice(0, 60) } } : {}),
+        body: { text: bodyText.slice(0, 1024) },
+        action: {
+          button: buttonLabel.slice(0, 20),
+          sections: [
+            {
+              rows: rows.slice(0, 10).map((r) => ({
+                id: r.id.slice(0, 200),
+                title: r.title.slice(0, 24),
+                ...(r.description ? { description: r.description.slice(0, 72) } : {}),
+              })),
+            },
+          ],
+        },
+      },
+    })
+    return true
+  } catch (err) {
+    console.error("[WhatsApp] List send failed:", err)
+    return false
+  }
+}
+
 // Send interactive button message (works within 24h session window)
 export async function sendWhatsAppInteractiveButtons(
   phone: string,

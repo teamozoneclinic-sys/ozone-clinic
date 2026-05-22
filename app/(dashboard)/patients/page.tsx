@@ -58,7 +58,7 @@ import { AddPatientModal } from "@/components/add-patient-modal"
 import { toast } from "sonner"
 import { BLOOD_GROUPS } from "@/lib/constants"
 import type { Patient } from "@/lib/types"
-import { calcAge } from "@/lib/utils"
+import { ageToDOB } from "@/lib/utils"
 
 // Avatar color palette — cycles through based on first char code
 const AVATAR_COLORS = [
@@ -455,7 +455,7 @@ function EditPatientModal({
   const [name, setName] = useState(patient.name)
   const [phone, setPhone] = useState(patient.phone)
   const [gender, setGender] = useState<"male" | "female" | "other">(patient.gender)
-  const [dateOfBirth, setDateOfBirth] = useState(patient.dateOfBirth ?? "")
+  const [age, setAge] = useState(String(patient.age ?? ""))
   const [bloodGroup, setBloodGroup] = useState(patient.bloodGroup ?? "")
   const [doctorId, setDoctorId] = useState(patient.assignedDoctorId ?? "")
   const [email, setEmail] = useState(patient.email ?? "")
@@ -477,19 +477,30 @@ function EditPatientModal({
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!name || !phone || !gender || !dateOfBirth) {
+    if (!name || !phone || !gender || !age) {
       toast.error("Please fill in all required fields.")
+      return
+    }
+    const ageNum = parseInt(age, 10)
+    if (isNaN(ageNum) || ageNum < 0 || ageNum > 120) {
+      toast.error("Please enter a valid age between 0 and 120.")
       return
     }
     setSaving(true)
     try {
+      // Keep the existing date of birth unless the age was actually changed, so
+      // a patient's real birth date isn't overwritten by an approximate one.
+      const dateOfBirth =
+        ageNum !== patient.age || !patient.dateOfBirth
+          ? ageToDOB(ageNum)
+          : patient.dateOfBirth
       onSaved({
         name: name.trim(),
         phone,
         email: email.trim(),
         gender,
         dateOfBirth,
-        age: calcAge(dateOfBirth),
+        age: ageNum,
         address: address.trim(),
         bloodGroup: bloodGroup || undefined,
         notes: notes.trim(),
@@ -561,14 +572,17 @@ function EditPatientModal({
               </div>
             </div>
             <div className="col-span-1 flex flex-col gap-1.5">
-              <Label htmlFor="ep-dob" className="text-sm font-medium">Date of Birth <span className="text-red-500">*</span></Label>
+              <Label htmlFor="ep-age" className="text-sm font-medium">Age <span className="text-red-500">*</span></Label>
               <Input
-                id="ep-dob"
-                type="date"
-                value={dateOfBirth}
-                onChange={(e) => setDateOfBirth(e.target.value)}
+                id="ep-age"
+                type="number"
+                inputMode="numeric"
+                value={age}
+                onChange={(e) => setAge(e.target.value)}
+                placeholder="Years"
+                min={0}
+                max={120}
                 className="h-10"
-                max={new Date().toISOString().split("T")[0]}
               />
             </div>
             <div className="col-span-1 flex flex-col gap-1.5">

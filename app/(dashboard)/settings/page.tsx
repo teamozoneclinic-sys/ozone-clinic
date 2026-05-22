@@ -1148,8 +1148,8 @@ function CreateUserModal({
       toast.error("Please fill in all required fields.")
       return
     }
-    if (!email.toLowerCase().endsWith("@ozonehospital.com")) {
-      toast.error("Email must end with @ozonehospital.com")
+    if (!email.toLowerCase().endsWith("@ozoneclinic.com")) {
+      toast.error("Email must end with @ozoneclinic.com")
       return
     }
     if (password.length < 6) {
@@ -1205,7 +1205,7 @@ function CreateUserModal({
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="user@ozonehospital.com"
+                placeholder="user@ozoneclinic.com"
               />
             </div>
           </div>
@@ -1289,6 +1289,10 @@ function EditUserCredentialsModal({
     e.preventDefault()
     if (!name || !email) {
       toast.error("Name and email are required.")
+      return
+    }
+    if (!email.toLowerCase().endsWith("@ozoneclinic.com")) {
+      toast.error("Email must end with @ozoneclinic.com")
       return
     }
     if (password && password.length < 6) {

@@ -26,8 +26,17 @@ import {
   Loader2,
   Clock,
   AlertCircle,
+  Plus,
+  Percent,
+  Receipt,
 } from "lucide-react"
-import type { Appointment } from "@/lib/types"
+import type { Appointment, TestCatalogItem } from "@/lib/types"
+import { getPKTDateString } from "@/lib/pkt"
+
+interface ProcedureEntry {
+  name: string
+  amount: number
+}
 
 interface AddAppointmentModalProps {
   open: boolean
@@ -290,10 +299,141 @@ function DoctorCombobox({
   )
 }
 
+// ─── Procedure Picker ──────────────────────────────────────────────────────
+// Lets the user pick a procedure from the Procedure Catalog or type a custom
+// one, set its price, and add it to the appointment's billing.
+
+function ProcedurePicker({ onAdd }: { onAdd: (p: ProcedureEntry) => void }) {
+  const { testCatalog } = useStore()
+  const [name, setName] = useState("")
+  const [price, setPrice] = useState("")
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const activeCatalog = useMemo(
+    () => testCatalog.filter((t) => t.isActive),
+    [testCatalog]
+  )
+
+  const filtered = useMemo(() => {
+    const q = name.trim().toLowerCase()
+    if (!q) return activeCatalog
+    return activeCatalog.filter(
+      (t) =>
+        t.name.toLowerCase().includes(q) || t.category.toLowerCase().includes(q)
+    )
+  }, [activeCatalog, name])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  const pickCatalog = (item: TestCatalogItem) => {
+    setName(item.name)
+    setPrice(item.price.toString())
+    setOpen(false)
+  }
+
+  const handleAdd = () => {
+    const amount = parseFloat(price)
+    if (!name.trim()) {
+      toast.error("Enter a procedure name or pick one from the catalog.")
+      return
+    }
+    if (isNaN(amount) || amount <= 0) {
+      toast.error("Enter a valid procedure price.")
+      return
+    }
+    onAdd({ name: name.trim(), amount })
+    setName("")
+    setPrice("")
+    setOpen(false)
+  }
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      handleAdd()
+    }
+  }
+
+  return (
+    <div className="flex gap-2">
+      {/* Name — catalog search / custom entry */}
+      <div ref={ref} className="relative flex-1">
+        <Input
+          value={name}
+          onChange={(e) => { setName(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown}
+          placeholder="Search catalog or type a custom procedure…"
+          className="h-9"
+        />
+        {open && (
+          <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-lg max-h-[180px] overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-2.5 text-xs text-muted-foreground">
+                {name.trim()
+                  ? `No catalog match — "${name.trim()}" will be added as a custom procedure.`
+                  : "No procedures in the catalog yet."}
+              </p>
+            ) : (
+              filtered.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => pickCatalog(item)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-accent transition-colors"
+                >
+                  <span className="min-w-0 truncate">
+                    <span className="font-medium">{item.name}</span>
+                    <span className="ml-1.5 text-xs text-muted-foreground">{item.category}</span>
+                  </span>
+                  <span className="shrink-0 text-xs font-semibold">Rs. {item.price.toLocaleString()}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Price */}
+      <div className="relative w-28 shrink-0">
+        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Rs.</span>
+        <Input
+          type="number"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="0"
+          min={0}
+          className="h-9 pl-9"
+        />
+      </div>
+
+      {/* Add */}
+      <Button
+        type="button"
+        variant="outline"
+        onClick={handleAdd}
+        className="h-9 shrink-0 gap-1 px-3"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add
+      </Button>
+    </div>
+  )
+}
+
 // ─── Main Modal ────────────────────────────────────────────────────────────
 
 export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalProps) {
-  const { patients, doctors, addAppointment } = useStore()
+  const { patients, doctors, addAppointment, hasPermission } = useStore()
   const [patientSearch, setPatientSearch] = useState("")
   const [patientId, setPatientId] = useState("")
   const [doctorId, setDoctorId] = useState("")
@@ -301,8 +441,16 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
   const [time, setTime] = useState("")
   const [duration, setDuration] = useState("30")
   const [type, setType] = useState("")
+  const [referral, setReferral] = useState("")
   const [notes, setNotes] = useState("")
+  const [procedures, setProcedures] = useState<ProcedureEntry[]>([])
+  const [discountEnabled, setDiscountEnabled] = useState(false)
+  const [discountDesc, setDiscountDesc] = useState("")
+  const [discountAmount, setDiscountAmount] = useState("")
   const [saving, setSaving] = useState(false)
+
+  // Discounts may only be applied by admin & manager (billing.discount permission)
+  const canDiscount = hasPermission("billing.discount")
 
   const doctorItems: DoctorItem[] = doctors
     .filter((d) => d.isActive)
@@ -314,6 +462,16 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
 
   const selectedDoctor = doctors.find((d) => d.id === doctorId)
 
+  // Today's date (clinic timezone) — appointments cannot be booked in the past
+  const todayStr = getPKTDateString()
+
+  // ── Billing preview ──────────────────────────────────────────────────────
+  const consultationFee = selectedDoctor?.consultationFee ?? 0
+  const proceduresTotal = procedures.reduce((sum, p) => sum + p.amount, 0)
+  const parsedDiscount =
+    canDiscount && discountEnabled ? Math.max(0, parseFloat(discountAmount) || 0) : 0
+  const invoiceTotal = Math.max(0, consultationFee + proceduresTotal - parsedDiscount)
+
   const filteredPatients = patientSearch.trim()
     ? patients.filter(
         (p) =>
@@ -324,7 +482,8 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
 
   const reset = () => {
     setPatientSearch(""); setPatientId(""); setDoctorId(""); setDate("")
-    setTime(""); setDuration("30"); setType(""); setNotes("")
+    setTime(""); setDuration("30"); setType(""); setReferral(""); setNotes("")
+    setProcedures([]); setDiscountEnabled(false); setDiscountDesc(""); setDiscountAmount("")
   }
 
   // Reset time whenever doctor or date changes
@@ -332,8 +491,16 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!patientId || !doctorId || !date || !time) {
-      toast.error("Please select a patient, doctor, date and time slot.")
+    if (!patientId || !date || !time) {
+      toast.error("Please select a patient, date and time.")
+      return
+    }
+    if (date < todayStr) {
+      toast.error("Appointment date cannot be in the past.")
+      return
+    }
+    if (canDiscount && discountEnabled && parsedDiscount > 0 && !discountDesc.trim()) {
+      toast.error("Please enter a reason for the discount.")
       return
     }
     const patient = patients.find((p) => p.id === patientId)
@@ -346,8 +513,14 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
         time,
         duration: parseInt(duration),
         type: type || "consultation",
+        referral: referral.trim(),
         notes: notes.trim(),
         status: "scheduled",
+        procedures: procedures.length > 0 ? procedures : undefined,
+        discount:
+          canDiscount && discountEnabled && parsedDiscount > 0
+            ? { description: discountDesc.trim(), amount: parsedDiscount }
+            : undefined,
       })
       toast.success(`Appointment booked for ${patient?.name ?? "patient"}.`)
       onOpenChange(false)
@@ -467,7 +640,7 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
               {/* Doctor */}
               <div className="flex flex-col gap-1.5">
                 <Label className="text-sm font-medium">
-                  Doctor <span className="text-red-500">*</span>
+                  Doctor <span className="text-xs font-normal text-muted-foreground">(Optional — can be assigned later)</span>
                 </Label>
                 <DoctorCombobox
                   items={doctorItems}
@@ -476,8 +649,8 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                 />
               </div>
 
-              {/* Date | Duration */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {/* Date | Duration | Type */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="apt-date" className="text-sm font-medium">
                     Date <span className="text-red-500">*</span>
@@ -487,13 +660,14 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                     type="date"
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
+                    min={todayStr}
                     className="h-10"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-sm font-medium">Duration</Label>
                   <Select value={duration} onValueChange={(v) => { setDuration(v); setTime("") }}>
-                    <SelectTrigger className="h-10">
+                    <SelectTrigger className="h-10 w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -502,6 +676,22 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                       <SelectItem value="45">45 min</SelectItem>
                       <SelectItem value="60">60 min</SelectItem>
                       <SelectItem value="90">90 min</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-sm font-medium">Type</Label>
+                  <Select value={type} onValueChange={setType}>
+                    <SelectTrigger className="h-10 w-full">
+                      <SelectValue placeholder="Select type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="consultation">Consultation</SelectItem>
+                      <SelectItem value="follow-up">Follow-up</SelectItem>
+                      <SelectItem value="treatment">Treatment</SelectItem>
+                      <SelectItem value="annual-checkup">Annual Check-up</SelectItem>
+                      <SelectItem value="post-surgery">Post-Surgery</SelectItem>
+                      <SelectItem value="ecg-review">ECG Review</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -518,61 +708,168 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                     </span>
                   )}
                 </Label>
-                <TimeSlotPicker
-                  doctorId={doctorId}
-                  date={date}
-                  duration={parseInt(duration)}
-                  value={time}
-                  onChange={setTime}
-                />
+                {doctorId ? (
+                  <TimeSlotPicker
+                    doctorId={doctorId}
+                    date={date}
+                    duration={parseInt(duration)}
+                    value={time}
+                    onChange={setTime}
+                  />
+                ) : (
+                  <>
+                    <Input
+                      type="time"
+                      value={time}
+                      onChange={(e) => setTime(e.target.value)}
+                      className="h-10"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      No doctor selected — enter any time. Schedule-checked slots appear once a doctor is assigned.
+                    </p>
+                  </>
+                )}
               </div>
 
-              {/* Type */}
+              {/* Referral | Notes */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="apt-referral" className="text-sm font-medium">
+                    Referred By <span className="text-xs font-normal text-muted-foreground">(Optional)</span>
+                  </Label>
+                  <Input
+                    id="apt-referral"
+                    value={referral}
+                    onChange={(e) => setReferral(e.target.value)}
+                    placeholder="Who referred the patient?"
+                    className="h-10"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="apt-notes" className="text-sm font-medium">Notes</Label>
+                  <Textarea
+                    id="apt-notes"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Symptoms, reason for visit, special instructions…"
+                    rows={2}
+                    className="resize-none text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Procedures (optional) */}
               <div className="flex flex-col gap-1.5">
-                <Label className="text-sm font-medium">Appointment Type</Label>
-                <Select value={type} onValueChange={setType}>
-                  <SelectTrigger className="h-10">
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="consultation">Consultation</SelectItem>
-                    <SelectItem value="follow-up">Follow-up</SelectItem>
-                    <SelectItem value="treatment">Treatment</SelectItem>
-                    <SelectItem value="annual-checkup">Annual Check-up</SelectItem>
-                    <SelectItem value="post-surgery">Post-Surgery</SelectItem>
-                    <SelectItem value="ecg-review">ECG Review</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Notes */}
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="apt-notes" className="text-sm font-medium">Notes</Label>
-                <Textarea
-                  id="apt-notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Symptoms, reason for visit, special instructions…"
-                  rows={2}
-                  className="resize-none text-sm"
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Stethoscope className="h-3.5 w-3.5 text-muted-foreground" />
+                  Procedures
+                  <span className="text-xs font-normal text-muted-foreground">(Optional)</span>
+                </Label>
+                <ProcedurePicker
+                  onAdd={(p) => setProcedures((prev) => [...prev, p])}
                 />
+                {procedures.length > 0 && (
+                  <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-muted/30 p-2">
+                    {procedures.map((p, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center justify-between gap-2 rounded-md bg-background px-2.5 py-1.5 text-sm"
+                      >
+                        <span className="min-w-0 truncate font-medium">{p.name}</span>
+                        <span className="flex shrink-0 items-center gap-2.5">
+                          <span className="font-semibold">Rs. {p.amount.toLocaleString()}</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setProcedures((prev) => prev.filter((_, idx) => idx !== i))
+                            }
+                            className="text-muted-foreground hover:text-red-600 transition-colors"
+                            title="Remove procedure"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {/* Fee preview */}
-              {selectedDoctor && (
-                <div className="flex items-center justify-between rounded-lg bg-muted/60 border border-border px-4 py-3">
+              {/* Discount (admin & manager only) */}
+              {canDiscount && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={discountEnabled}
+                      onChange={(e) => setDiscountEnabled(e.target.checked)}
+                      className="h-4 w-4 rounded border-border accent-primary"
+                    />
+                    <Percent className="h-3.5 w-3.5 text-muted-foreground" />
+                    Apply Discount
+                  </label>
+                  {discountEnabled && (
+                    <div className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-muted/30 p-2.5 sm:grid-cols-[1fr_auto]">
+                      <Input
+                        value={discountDesc}
+                        onChange={(e) => setDiscountDesc(e.target.value)}
+                        placeholder="Reason — e.g. Loyalty discount"
+                        className="h-9"
+                      />
+                      <div className="relative sm:w-32">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">Rs.</span>
+                        <Input
+                          type="number"
+                          value={discountAmount}
+                          onChange={(e) => setDiscountAmount(e.target.value)}
+                          placeholder="0"
+                          min={0}
+                          className="h-9 pl-9"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Billing summary */}
+              {(selectedDoctor || procedures.length > 0 || parsedDiscount > 0) && (
+                <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted/60 px-4 py-3">
                   <div className="flex items-center gap-2.5">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
-                      <Stethoscope className="h-4 w-4 text-primary" />
+                      <Receipt className="h-4 w-4 text-primary" />
                     </div>
-                    <div>
-                      <p className="text-sm font-medium leading-tight">{selectedDoctor.name}</p>
-                      <p className="text-xs text-muted-foreground">{selectedDoctor.specialty}</p>
-                    </div>
+                    <p className="text-sm font-semibold">Billing Summary</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-xs text-muted-foreground">Consultation Fee</p>
-                    <p className="text-base font-bold">Rs. {selectedDoctor.consultationFee.toLocaleString()}</p>
+                  <div className="flex flex-col gap-1 text-sm">
+                    {selectedDoctor ? (
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Consultation — {selectedDoctor.specialty}
+                        </span>
+                        <span className="font-medium">Rs. {consultationFee.toLocaleString()}</span>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No doctor selected — the consultation fee is added when a doctor is assigned.
+                      </p>
+                    )}
+                    {procedures.map((p, i) => (
+                      <div key={i} className="flex justify-between gap-2">
+                        <span className="min-w-0 truncate text-muted-foreground">{p.name}</span>
+                        <span className="shrink-0 font-medium">Rs. {p.amount.toLocaleString()}</span>
+                      </div>
+                    ))}
+                    {parsedDiscount > 0 && (
+                      <div className="flex justify-between text-emerald-600">
+                        <span>Discount</span>
+                        <span className="font-medium">− Rs. {parsedDiscount.toLocaleString()}</span>
+                      </div>
+                    )}
+                    <div className="mt-1 flex justify-between border-t border-border pt-1.5">
+                      <span className="font-semibold">Invoice Total</span>
+                      <span className="text-base font-bold">Rs. {invoiceTotal.toLocaleString()}</span>
+                    </div>
                   </div>
                 </div>
               )}

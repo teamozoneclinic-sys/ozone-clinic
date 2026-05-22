@@ -319,12 +319,12 @@ function EncounterForm({
   return (
     <>
       <PageHeader
-        title={isEdit ? `Edit Encounter — ${patient?.name ?? "Patient"}` : `Encounter — ${patient?.name ?? "Patient"}`}
+        title={isEdit ? `Edit Consultation — ${patient?.name ?? "Patient"}` : `Encounter — ${patient?.name ?? "Patient"}`}
         description={`${appointment!.type} · ${appointment!.date} at ${appointment!.time} · Dr. ${doctor?.name ?? "Unknown"}${isEdit ? " · Editing saved record" : ""}`}
         breadcrumbs={[
           { label: "Dashboard", href: "/" },
           { label: "Treatments", href: "/treatments" },
-          { label: isEdit ? "Edit Encounter" : "Clinical Encounter" },
+          { label: isEdit ? "Edit Consultation" : "Clinical Encounter" },
         ]}
       />
 

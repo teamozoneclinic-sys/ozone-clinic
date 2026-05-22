@@ -80,13 +80,21 @@ interface StoreState {
     type: string
     notes: string
     status?: string
+    referral?: string
+    procedures?: { name: string; amount: number }[]
+    discount?: { description: string; amount: number }
   }) => Promise<void>
   collectPayment: (invoiceId: string, payment: Omit<Payment, "id">) => Promise<void>
+  editInvoice: (
+    invoiceId: string,
+    lineItems: { id?: string; description: string; amount: number; quantity: number; category?: string }[]
+  ) => Promise<Invoice>
   createTreatment: (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">) => Promise<Treatment>
   updateTreatment: (id: string, data: Partial<Omit<Treatment, "id" | "createdAt" | "updatedAt">> & { customProcedures?: { name: string; amount: number }[]; newTestIds?: string[] }) => Promise<{ treatment: Treatment; invoice: Invoice | null }>
   updateAppointmentStatus: (appointmentId: string, status: Appointment["status"]) => Promise<void>
   deleteAppointment: (id: string, reason?: string) => Promise<void>
   updateAppointment: (id: string, data: Partial<Pick<Appointment, "date" | "time" | "duration">>) => Promise<void>
+  assignDoctor: (appointmentId: string, doctorId: string) => Promise<void>
   refreshLiveData: () => Promise<void>
   refetch: () => Promise<void>
 
@@ -286,6 +294,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       type: string
       notes: string
       status?: string
+      referral?: string
+      procedures?: { name: string; amount: number }[]
+      discount?: { description: string; amount: number }
     }) => {
       const res = await apiFetch<{ data: Appointment }>("/api/appointments", {
         method: "POST",
@@ -320,6 +331,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       )
     },
     [logAuditEntry]
+  )
+
+  // Edit an invoice's line items (admin & manager) — totals, balance,
+  // refund-due and status are recomputed server-side (which also audits it).
+  const editInvoice = useCallback(
+    async (
+      invoiceId: string,
+      lineItems: { id?: string; description: string; amount: number; quantity: number; category?: string }[]
+    ): Promise<Invoice> => {
+      const res = await apiFetch<{ data: Invoice }>(`/api/invoices/${invoiceId}/edit`, {
+        method: "POST",
+        body: JSON.stringify({ lineItems }),
+      })
+      setInvoices((prev) => prev.map((inv) => (inv.id === invoiceId ? res.data : inv)))
+      return res.data
+    },
+    []
   )
 
   const createTreatment = useCallback(
@@ -425,6 +453,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify(data),
       })
       setAppointments((prev) => prev.map((a) => (a.id === id ? res.data : a)))
+    },
+    []
+  )
+
+  // Assign a doctor to an appointment booked without one — the server also
+  // ensures the invoice carries the consultation charge.
+  const assignDoctor = useCallback(
+    async (appointmentId: string, doctorId: string) => {
+      const res = await apiFetch<{ data: Appointment; invoice: Invoice | null }>(
+        `/api/appointments/${appointmentId}/assign-doctor`,
+        { method: "POST", body: JSON.stringify({ doctorId }) }
+      )
+      setAppointments((prev) => prev.map((a) => (a.id === appointmentId ? res.data : a)))
+      if (res.invoice) {
+        setInvoices((prev) => {
+          const exists = prev.some((i) => i.id === res.invoice!.id)
+          return exists
+            ? prev.map((i) => (i.id === res.invoice!.id ? res.invoice! : i))
+            : [res.invoice!, ...prev]
+        })
+      }
     },
     []
   )
@@ -583,11 +632,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         deleteDoctor,
         addAppointment,
         collectPayment,
+        editInvoice,
         createTreatment,
         updateTreatment,
         updateAppointmentStatus,
         deleteAppointment,
         updateAppointment,
+        assignDoctor,
         refreshLiveData,
         refetch: fetchAll,
         getPatient,

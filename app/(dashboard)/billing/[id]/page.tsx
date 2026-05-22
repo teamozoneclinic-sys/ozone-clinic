@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useState } from "react"
+import { use, useState, useEffect } from "react"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { StatusBadge } from "@/components/status-badge"
@@ -33,11 +33,11 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { User, Stethoscope, CalendarDays, CreditCard, Trash2, Download, Receipt, MessageCircle } from "lucide-react"
+import { User, Stethoscope, CalendarDays, CreditCard, Trash2, Download, Receipt, MessageCircle, Plus, Pencil } from "lucide-react"
 import { PAYMENT_METHODS } from "@/lib/constants"
 import { toast } from "sonner"
 import Link from "next/link"
-import type { Payment } from "@/lib/types"
+import type { Payment, Invoice } from "@/lib/types"
 import { InvoiceReceiptDialog } from "@/components/invoice-receipt-dialog"
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -45,6 +45,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const { getInvoice, getPatient, getDoctor, getAppointment, hasPermission, currentUser, clinicSettings } = useStore()
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showDiscountModal, setShowDiscountModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null)
   const [sendingWA, setSendingWA] = useState(false)
 
@@ -101,6 +102,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
   const canCollect = hasPermission("billing.collect")
   const canVoid = hasPermission("billing.void")
   const canDiscount = hasPermission("billing.discount")
+  const canEditInvoice = currentUser?.role === "admin" || currentUser?.role === "manager"
 
   // Last collected payment — show receipt button
   const lastPayment = invoice.payments.length > 0
@@ -140,6 +142,12 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               >
                 <MessageCircle className="h-4 w-4" />
                 {sendingWA ? "Sending…" : "Send via WhatsApp"}
+              </Button>
+            )}
+            {canEditInvoice && invoice.status !== "voided" && (
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowEditModal(true)}>
+                <Pencil className="h-4 w-4" />
+                Edit Invoice
               </Button>
             )}
             {canDiscount && invoice.status !== "voided" && invoice.status !== "paid" && (
@@ -283,6 +291,14 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
                     Rs. {invoice.balance}
                   </span>
                 </div>
+                {(invoice.refundDue ?? 0) > 0 && (
+                  <div className="flex justify-between text-sm rounded-md bg-amber-50 border border-amber-200 px-2.5 py-2">
+                    <span className="font-medium text-amber-700">Refund Due to Patient</span>
+                    <span className="font-bold text-lg text-amber-600">
+                      Rs. {(invoice.refundDue ?? 0).toLocaleString()}
+                    </span>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -338,6 +354,13 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
         onOpenChange={setShowDiscountModal}
         invoiceId={invoice.id}
         appliedBy={currentUser?.name ?? "Staff"}
+      />
+
+      {/* Edit Invoice Modal */}
+      <EditInvoiceModal
+        open={showEditModal}
+        onOpenChange={setShowEditModal}
+        invoice={invoice}
       />
 
       {/* Receipt Dialog */}
@@ -580,6 +603,230 @@ function DiscountModal({
             </Button>
           </div>
         </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Edit Invoice Modal ─────────────────────────────────────────────────────
+
+interface EditRow {
+  key: string
+  id?: string
+  description: string
+  amount: string
+  quantity: number
+  category?: string
+}
+
+function EditInvoiceModal({
+  open,
+  onOpenChange,
+  invoice,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  invoice: Invoice
+}) {
+  const { editInvoice, getPatient } = useStore()
+  const patient = getPatient(invoice.patientId)
+  const [rows, setRows] = useState<EditRow[]>([])
+  const [sendWA, setSendWA] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  // Reload the editor from the invoice each time the dialog opens
+  useEffect(() => {
+    if (open) {
+      setRows(
+        invoice.lineItems.map((li, i) => ({
+          key: `row_${i}_${li.id}`,
+          id: li.id,
+          description: li.description,
+          amount: String(li.amount),
+          quantity: li.quantity ?? 1,
+          category: li.category,
+        }))
+      )
+      setSendWA(true)
+    }
+  }, [open, invoice])
+
+  const updateRow = (key: string, patch: Partial<EditRow>) =>
+    setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)))
+  const removeRow = (key: string) => setRows((prev) => prev.filter((r) => r.key !== key))
+  const addRow = () =>
+    setRows((prev) => [
+      ...prev,
+      { key: `row_new_${Date.now()}`, description: "", amount: "", quantity: 1 },
+    ])
+
+  const total = Math.max(
+    0,
+    rows.reduce((s, r) => s + (parseFloat(r.amount) || 0) * (r.quantity || 1), 0)
+  )
+  const paid = invoice.paidAmount
+  const balance = Math.max(0, total - paid)
+  const refundDue = Math.max(0, paid - total)
+
+  const handleSave = async () => {
+    const lineItems = rows
+      .map((r) => ({
+        id: r.id,
+        description: r.description.trim(),
+        amount: parseFloat(r.amount) || 0,
+        quantity: r.quantity || 1,
+        category: r.category,
+      }))
+      .filter((r) => r.description !== "")
+    if (lineItems.length === 0) {
+      toast.error("Add at least one line item with a description.")
+      return
+    }
+    setSaving(true)
+    try {
+      await editInvoice(invoice.id, lineItems)
+      if (sendWA) {
+        try {
+          const res = await fetch("/api/whatsapp/send-receipt", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ invoiceId: invoice.id }),
+          })
+          if (res.ok) {
+            toast.success("Invoice updated and sent to the patient on WhatsApp.")
+          } else {
+            const err = await res.json().catch(() => ({}))
+            toast.success("Invoice updated.")
+            toast.error(`Could not send to patient: ${err.error ?? "WhatsApp send failed"}`)
+          }
+        } catch {
+          toast.success("Invoice updated.")
+          toast.error("Could not send the updated invoice on WhatsApp.")
+        }
+      } else {
+        toast.success("Invoice updated.")
+      }
+      onOpenChange(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update invoice.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!saving) onOpenChange(v) }}>
+      <DialogContent className="sm:max-w-[640px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-4 w-4" />
+            Edit Invoice
+          </DialogTitle>
+          <DialogDescription>
+            #{invoice.id.slice(-8)} — {patient?.name ?? "Patient"}. Adjust line items;
+            the total, balance and status recalculate automatically.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-3">
+          {/* Column headers */}
+          <div className="flex items-center gap-2 px-1 text-xs font-medium text-muted-foreground">
+            <span className="flex-1">Description</span>
+            <span className="w-32 text-right">Amount (Rs.)</span>
+            <span className="w-7" />
+          </div>
+
+          {/* Line item rows */}
+          <div className="flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
+            {rows.length === 0 ? (
+              <p className="py-3 text-center text-sm text-muted-foreground">
+                No line items — add one below.
+              </p>
+            ) : (
+              rows.map((r) => (
+                <div key={r.key} className="flex items-center gap-2">
+                  <Input
+                    value={r.description}
+                    onChange={(e) => updateRow(r.key, { description: e.target.value })}
+                    placeholder="Line item description"
+                    className="h-9 flex-1"
+                  />
+                  <Input
+                    type="number"
+                    value={r.amount}
+                    onChange={(e) => updateRow(r.key, { amount: e.target.value })}
+                    placeholder="0"
+                    step="0.01"
+                    className="h-9 w-32 text-right"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeRow(r.key)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-red-50 hover:text-red-600 transition-colors"
+                    title="Remove line item"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))
+            )}
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="self-start gap-1.5"
+            onClick={addRow}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Line Item
+          </Button>
+
+          {/* Live summary */}
+          <div className="mt-1 flex flex-col gap-1.5 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">New Total</span>
+              <span className="font-semibold">Rs. {total.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Already Paid</span>
+              <span className="font-medium text-emerald-600">Rs. {paid.toLocaleString()}</span>
+            </div>
+            {balance > 0 && (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Balance Due</span>
+                <span className="font-semibold text-red-600">Rs. {balance.toLocaleString()}</span>
+              </div>
+            )}
+            {refundDue > 0 && (
+              <div className="flex justify-between border-t border-amber-200 pt-1.5">
+                <span className="font-medium text-amber-700">Refund Due to Patient</span>
+                <span className="font-bold text-amber-600">Rs. {refundDue.toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Send option */}
+          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={sendWA}
+              onChange={(e) => setSendWA(e.target.checked)}
+              className="h-4 w-4 rounded border-border accent-primary"
+            />
+            Regenerate &amp; send the updated invoice to the patient on WhatsApp
+          </label>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={handleSave} disabled={saving}>
+            {saving ? "Saving…" : "Save Changes"}
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   )

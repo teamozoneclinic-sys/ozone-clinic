@@ -51,7 +51,7 @@ import {
 } from "lucide-react"
 import { AddAppointmentModal } from "@/components/add-appointment-modal"
 import { toast } from "sonner"
-import type { Appointment } from "@/lib/types"
+import type { Appointment, Doctor } from "@/lib/types"
 import Link from "next/link"
 import { getPKTDateString, toPKTDateString } from "@/lib/pkt"
 
@@ -126,6 +126,7 @@ export default function AppointmentsPage() {
     updateAppointmentStatus,
     deleteAppointment,
     updateAppointment,
+    assignDoctor,
   } = useStore()
 
   // For doctor role, lock the filter to their own doctor record
@@ -206,6 +207,20 @@ export default function AppointmentsPage() {
       toast.success("Appointment rescheduled.")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to reschedule.")
+      throw err // re-throw so the form can stay open
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
+  const handleAssignDoctor = async (doctorId: string) => {
+    if (!selectedAppointmentId) return
+    setBusyAction(true)
+    try {
+      await assignDoctor(selectedAppointmentId, doctorId)
+      toast.success("Doctor assigned to appointment.")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to assign doctor.")
       throw err // re-throw so the form can stay open
     } finally {
       setBusyAction(false)
@@ -338,7 +353,7 @@ export default function AppointmentsPage() {
                           >
                             <span className="text-sm font-medium text-foreground">{patient?.name}</span>
                             <span className="text-xs text-muted-foreground">
-                              {apt.time} - {doctor?.name}
+                              {apt.time} - {doctor?.name ?? "Unassigned"}
                             </span>
                             <div className="mt-1">
                               <StatusBadge status={apt.status} />
@@ -473,6 +488,7 @@ export default function AppointmentsPage() {
           {selectedAppointment && (
             <AppointmentDetailContent
               appointment={selectedAppointment}
+              doctors={doctors}
               getPatient={getPatient}
               getDoctor={getDoctor}
               getInvoice={getInvoice}
@@ -480,6 +496,7 @@ export default function AppointmentsPage() {
               onComplete={handleComplete}
               onDelete={handleDelete}
               onUpdateTime={handleUpdateTime}
+              onAssignDoctor={handleAssignDoctor}
               isAdmin={isAdmin}
               canManage={canManage}
               isBusy={busyAction}
@@ -495,6 +512,7 @@ export default function AppointmentsPage() {
 
 function AppointmentDetailContent({
   appointment,
+  doctors,
   getPatient,
   getDoctor,
   getInvoice,
@@ -502,11 +520,13 @@ function AppointmentDetailContent({
   onComplete,
   onDelete,
   onUpdateTime,
+  onAssignDoctor,
   isAdmin,
   canManage,
   isBusy,
 }: {
   appointment: Appointment
+  doctors: Doctor[]
   getPatient: (id: string) => ReturnType<ReturnType<typeof useStore>["getPatient"]>
   getDoctor: (id: string) => ReturnType<ReturnType<typeof useStore>["getDoctor"]>
   getInvoice: (id: string) => ReturnType<ReturnType<typeof useStore>["getInvoice"]>
@@ -514,6 +534,7 @@ function AppointmentDetailContent({
   onComplete: () => Promise<void>
   onDelete: (reason: string) => Promise<void>
   onUpdateTime: (date: string, time: string, duration: number) => Promise<void>
+  onAssignDoctor: (doctorId: string) => Promise<void>
   isAdmin: boolean
   canManage: boolean
   isBusy: boolean
@@ -528,6 +549,9 @@ function AppointmentDetailContent({
   const [newDuration, setNewDuration] = useState(appointment.duration)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteReason, setDeleteReason] = useState("")
+  const [showAssignDoctor, setShowAssignDoctor] = useState(false)
+  const [assignDoctorId, setAssignDoctorId] = useState("")
+  const assignDoctorFee = doctors.find((d) => d.id === assignDoctorId)?.consultationFee ?? null
 
   // Reset form when appointment changes (e.g. external update)
   const resetModifyForm = () => {
@@ -573,7 +597,9 @@ function AppointmentDetailContent({
             <Stethoscope className="h-4 w-4 shrink-0 text-muted-foreground" />
             <div>
               <p className="text-xs text-muted-foreground">Doctor</p>
-              <p className="text-sm font-medium">{doctor?.name ?? "Unknown"}</p>
+              <p className={`text-sm font-medium ${!appointment.doctorId ? "text-amber-600" : ""}`}>
+                {doctor?.name ?? (appointment.doctorId ? "Unknown" : "Not assigned yet")}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -628,6 +654,74 @@ function AppointmentDetailContent({
         {isActive && (
           <>
             <Separator />
+
+            {/* Assign Doctor — when the appointment was booked without one */}
+            {canManage && !appointment.doctorId && (
+              <div>
+                {!showAssignDoctor ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
+                    onClick={() => setShowAssignDoctor(true)}
+                    disabled={isBusy}
+                  >
+                    <Stethoscope className="h-3.5 w-3.5" />
+                    Assign Doctor
+                  </Button>
+                ) : (
+                  <div className="rounded-lg border border-border p-3 flex flex-col gap-3 bg-muted/30">
+                    <p className="text-sm font-semibold">Assign Doctor</p>
+                    <Select value={assignDoctorId} onValueChange={setAssignDoctorId}>
+                      <SelectTrigger className="h-9 w-full">
+                        <SelectValue placeholder="Select a doctor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {doctors.filter((d) => d.isActive).map((d) => (
+                          <SelectItem key={d.id} value={d.id}>
+                            {d.name} — {d.specialty}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {assignDoctorFee != null && (
+                      <p className="text-xs text-muted-foreground">
+                        A consultation charge of Rs. {assignDoctorFee.toLocaleString()} will be added to the invoice.
+                      </p>
+                    )}
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        className="flex-1 gap-1.5"
+                        disabled={isBusy || !assignDoctorId}
+                        onClick={() =>
+                          onAssignDoctor(assignDoctorId)
+                            .then(() => { setShowAssignDoctor(false); setAssignDoctorId("") })
+                            .catch(() => {/* error toasted in parent */})
+                        }
+                      >
+                        {isBusy ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Save className="h-3.5 w-3.5" />
+                        )}
+                        Assign
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1"
+                        onClick={() => { setShowAssignDoctor(false); setAssignDoctorId("") }}
+                        disabled={isBusy}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Modify Date / Time — for admin + manager, scheduled only */}
             {canManage && isScheduled && (

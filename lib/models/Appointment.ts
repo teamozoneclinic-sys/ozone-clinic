@@ -12,6 +12,7 @@ export interface IAppointment extends Document {
   notes: string
   receptionNotes: string
   doctorNotes: string
+  referral: string
   invoiceId: string
   createdAt: Date
   updatedAt: Date
@@ -20,7 +21,7 @@ export interface IAppointment extends Document {
 const AppointmentSchema = new Schema<IAppointment>(
   {
     patientId: { type: String, required: true },
-    doctorId: { type: String, required: true },
+    doctorId: { type: String, default: "" },
     date: { type: String, required: true },
     time: { type: String, required: true },
     duration: { type: Number, default: 30 },
@@ -33,6 +34,7 @@ const AppointmentSchema = new Schema<IAppointment>(
     notes: { type: String, default: "" },
     receptionNotes: { type: String, default: "" },
     doctorNotes: { type: String, default: "" },
+    referral: { type: String, default: "" },
     invoiceId: { type: String, default: "" },
   },
   {
