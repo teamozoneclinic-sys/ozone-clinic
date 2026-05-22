@@ -129,7 +129,8 @@ function normalizePhone(phone: string): string {
   return d
 }
 
-const TIME_SLOTS = ["10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"]
+// Clinic hours: 7:00 PM – 10:00 PM, in 30-minute slots
+const TIME_SLOTS = ["19:00", "19:30", "20:00", "20:30", "21:00", "21:30", "22:00"]
 
 function formatTime12h(hhmm: string): string {
   const [h, m] = hhmm.split(":").map(Number)
