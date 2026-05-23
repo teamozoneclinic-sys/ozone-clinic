@@ -79,6 +79,7 @@ function getAvatarColor(name: string) {
 export default function PatientsPage() {
   const { patients, doctors, getPatientInvoices, currentUser, deletePatient, updatePatient } = useStore()
   const isAdmin = currentUser?.role === "admin"
+  const isDoctor = currentUser?.role === "doctor"
   const [search, setSearch] = useState("")
   const [genderFilter, setGenderFilter] = useState<string>("all")
   const [doctorFilter, setDoctorFilter] = useState<string>("all")
@@ -187,17 +188,19 @@ export default function PatientsPage() {
                 <SelectItem value="other">Other</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={doctorFilter} onValueChange={setDoctorFilter}>
-              <SelectTrigger className="w-[190px] h-9">
-                <SelectValue placeholder="Doctor" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Doctors</SelectItem>
-                {doctors.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {!isDoctor && (
+              <Select value={doctorFilter} onValueChange={setDoctorFilter}>
+                <SelectTrigger className="w-[190px] h-9">
+                  <SelectValue placeholder="Doctor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Doctors</SelectItem>
+                  {doctors.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </CardContent>
       </Card>

@@ -136,7 +136,6 @@ export const ROLE_PERMISSIONS: RolePermissions[] = [
       "treatments.view",
       "treatments.create",
       "treatments.edit",
-      "reports.view",
     ],
   },
   {
