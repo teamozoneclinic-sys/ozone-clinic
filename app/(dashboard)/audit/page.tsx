@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,6 +25,7 @@ import {
   Search,
   ShieldCheck,
   Activity,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
 import type { Role } from "@/lib/types"
@@ -80,6 +81,7 @@ const ROLE_COLORS: Record<Role, string> = {
   doctor: "bg-teal-100 text-teal-800 border-teal-200",
   manager: "bg-blue-100 text-blue-800 border-blue-200",
   accounts: "bg-amber-100 text-amber-800 border-amber-200",
+  receptionist: "bg-purple-100 text-purple-800 border-purple-200",
 }
 
 const ENTITY_LINK: Record<string, (id: string) => string> = {
@@ -98,11 +100,22 @@ function formatTimestamp(ts: string) {
 }
 
 export default function AuditLogPage() {
-  const { auditLog } = useStore()
+  const { auditLog, fetchAuditLog } = useStore()
+  const [loading, setLoading] = useState(auditLog.length === 0)
   const [search, setSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState("all")
   const [actionFilter, setActionFilter] = useState("all")
   const [entityFilter, setEntityFilter] = useState("all")
+
+  // Audit log isn't loaded at app start (it can be huge) — fetch on mount,
+  // and on every visit so newly logged actions appear.
+  useEffect(() => {
+    let cancelled = false
+    fetchAuditLog().finally(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [fetchAuditLog])
 
   const uniqueActions = Array.from(new Set(auditLog.map((e) => e.action)))
   const uniqueEntities = Array.from(new Set(auditLog.map((e) => e.entity)))
@@ -238,7 +251,14 @@ export default function AuditLogPage() {
       </div>
 
       {/* Timeline */}
-      {filtered.length === 0 ? (
+      {loading && auditLog.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center gap-3 py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-primary/70" />
+            <p className="text-sm text-muted-foreground">Loading audit log…</p>
+          </CardContent>
+        </Card>
+      ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <ShieldCheck className="mb-3 h-10 w-10 text-muted-foreground/40" />

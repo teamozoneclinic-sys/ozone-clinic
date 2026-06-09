@@ -97,6 +97,7 @@ interface StoreState {
   acknowledgeAppointment: (appointmentId: string) => Promise<void>
   refreshLiveData: () => Promise<void>
   refetch: () => Promise<void>
+  fetchAuditLog: () => Promise<void>
 
   // Helpers
   getPatient: (id: string) => Patient | undefined
@@ -136,10 +137,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [clinicSettings, setClinicSettings] = useState<ClinicInfo>(DEFAULT_CLINIC_INFO)
 
   // ── Fetch all data ────────────────────────────────────────────────────
+  // Audit logs are deliberately NOT in this initial load — they grow large
+  // and are only viewed on /audit. The audit page fetches them on demand.
   const fetchAll = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [meRes, patientsRes, doctorsRes, appointmentsRes, treatmentsRes, invoicesRes, catalogRes, clinicRes, auditRes] =
+      const [meRes, patientsRes, doctorsRes, appointmentsRes, treatmentsRes, invoicesRes, catalogRes, clinicRes] =
         await Promise.all([
           apiFetch<{ user: User }>("/api/auth/me"),
           apiFetch<{ data: Patient[] }>("/api/patients"),
@@ -149,7 +152,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           apiFetch<{ data: Invoice[] }>("/api/invoices"),
           apiFetch<{ data: TestCatalogItem[] }>("/api/catalog"),
           apiFetch<{ data: ClinicInfo }>("/api/clinic-settings"),
-          apiFetch<{ data: AuditLogEntry[] }>("/api/audit-log"),
         ])
       setCurrentUser(meRes.user)
       setPatients(patientsRes.data)
@@ -159,11 +161,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setInvoices(invoicesRes.data)
       setTestCatalog(catalogRes.data)
       setClinicSettings(clinicRes.data)
-      setAuditLog(auditRes.data)
     } catch (err) {
       console.error("Store fetch error:", err)
     } finally {
       setIsLoading(false)
+    }
+  }, [])
+
+  // Fetch audit log on demand (used by the Audit page).
+  const fetchAuditLog = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ data: AuditLogEntry[] }>("/api/audit-log")
+      setAuditLog(res.data)
+    } catch (err) {
+      console.error("Audit log fetch error:", err)
     }
   }, [])
 
@@ -622,6 +633,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         acknowledgeAppointment,
         refreshLiveData,
         refetch: fetchAll,
+        fetchAuditLog,
         getPatient,
         getDoctor,
         getAppointment,

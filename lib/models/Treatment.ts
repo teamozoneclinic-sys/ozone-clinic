@@ -52,6 +52,12 @@ const TreatmentSchema = new Schema<ITreatment>(
   }
 )
 
+// Indexes — common queries: by patient (medical history), by doctor list,
+// by appointment (to look up the linked treatment), sort by date.
+TreatmentSchema.index({ patientId: 1, date: -1 })
+TreatmentSchema.index({ doctorId: 1 })
+TreatmentSchema.index({ appointmentId: 1 })
+
 if (process.env.NODE_ENV !== "production") {
   delete (mongoose.models as Record<string, unknown>).Treatment
 }

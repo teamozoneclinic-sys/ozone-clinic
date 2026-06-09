@@ -105,6 +105,12 @@ const PatientSchema = new Schema<IPatient>(
   }
 )
 
+// Indexes — common lookups: assigned doctor filter, phone match (WhatsApp bot),
+// sort by recency.
+PatientSchema.index({ assignedDoctorId: 1 })
+PatientSchema.index({ phone: 1 })
+PatientSchema.index({ createdAt: -1 })
+
 if (process.env.NODE_ENV !== "production") {
   delete (mongoose.models as Record<string, unknown>).Patient
 }

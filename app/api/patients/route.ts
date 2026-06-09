@@ -22,7 +22,12 @@ export async function GET(request: NextRequest) {
       : { assignedDoctorId: user.doctorId }
   }
 
-  const patients = await Patient.find(query).sort({ createdAt: -1 })
+  // Strip the heavy sub-arrays from the list — they can be large and aren't
+  // shown on the patients table. The patient detail page fetches the full
+  // record (with documents + medicalHistory) via /api/patients/[id].
+  const patients = await Patient.find(query)
+    .select("-medicalHistory -documents")
+    .sort({ createdAt: -1 })
   return NextResponse.json({ data: patients.map((p) => p.toJSON()) })
 }
 

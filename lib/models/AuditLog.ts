@@ -38,6 +38,9 @@ const AuditLogSchema = new Schema<IAuditLog>(
   }
 )
 
+// Index — audit log is always read sorted by recent timestamp.
+AuditLogSchema.index({ timestamp: -1 })
+
 if (process.env.NODE_ENV !== "production") {
   delete (mongoose.models as Record<string, unknown>).AuditLog
 }

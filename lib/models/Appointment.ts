@@ -54,6 +54,12 @@ const AppointmentSchema = new Schema<IAppointment>(
   }
 )
 
+// Indexes — common queries: by patient, by doctor, by date, filtered list sort.
+AppointmentSchema.index({ doctorId: 1, date: 1 })
+AppointmentSchema.index({ patientId: 1 })
+AppointmentSchema.index({ date: -1, time: 1 })
+AppointmentSchema.index({ status: 1 })
+
 if (process.env.NODE_ENV !== "production") {
   delete (mongoose.models as Record<string, unknown>).Appointment
 }

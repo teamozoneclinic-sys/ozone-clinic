@@ -82,6 +82,14 @@ const InvoiceSchema = new Schema<IInvoice>(
   }
 )
 
+// Indexes — common queries: billing lists by patient, appointment-to-invoice
+// lookup, unpaid filter, sort by recency.
+InvoiceSchema.index({ patientId: 1 })
+InvoiceSchema.index({ appointmentId: 1 })
+InvoiceSchema.index({ doctorId: 1 })
+InvoiceSchema.index({ status: 1 })
+InvoiceSchema.index({ createdAt: -1 })
+
 const Invoice: Model<IInvoice> =
   mongoose.models.Invoice || mongoose.model<IInvoice>("Invoice", InvoiceSchema)
 export default Invoice
