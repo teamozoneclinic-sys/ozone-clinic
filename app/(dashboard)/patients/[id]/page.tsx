@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useRef, useState } from "react"
+import { use, useEffect, useRef, useState } from "react"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
 import { StatusBadge } from "@/components/status-badge"
@@ -31,6 +31,7 @@ import {
   Download,
   Trash2,
   ClipboardList,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
 import type { PatientDocument } from "@/lib/types"
@@ -77,7 +78,11 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
     getPatientAppointments,
     getPatientInvoices,
     getPatientTreatments,
+    refreshLiveData,
+    currentUser,
   } = useStore()
+
+  const isAdmin = currentUser?.role === "admin"
 
   const patient = getPatient(patientId)!
   const doctor = getDoctor(patient.assignedDoctorId)
@@ -100,9 +105,29 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
 
   // ── Documents local state ─────────────────────────────────────────────────
   const [documents, setDocuments] = useState<PatientDocument[]>(patient.documents ?? [])
+  const [loadingDocs, setLoadingDocs] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Fetch the freshest copy of the patient on mount — newly uploaded documents
+  // (added in an encounter) may not be in the store snapshot yet. Also kick a
+  // background refresh of appointments / treatments / invoices.
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/patients/${patientId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.data) return
+        setDocuments(data.data.documents ?? [])
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoadingDocs(false)
+      })
+    refreshLiveData().catch(() => {})
+    return () => { cancelled = true }
+  }, [patientId, refreshLiveData])
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -462,7 +487,12 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
                 </div>
               </CardHeader>
               <CardContent>
-                {documents.length === 0 ? (
+                {loadingDocs && documents.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 gap-3 text-muted-foreground border-2 border-dashed rounded-lg">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary/70" />
+                    <p className="text-sm">Loading documents…</p>
+                  </div>
+                ) : documents.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-10 gap-3 text-muted-foreground border-2 border-dashed rounded-lg">
                     <FileText className="h-8 w-8 opacity-40" />
                     <p className="text-sm">No documents uploaded yet.</p>
@@ -529,16 +559,18 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
                           >
                             <Download className="h-3.5 w-3.5" />
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
-                            title="Delete"
-                            disabled={deletingDocId === doc.id}
-                            onClick={() => handleDeleteDoc(doc.id, doc.name)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
+                          {isAdmin && (
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                              title="Delete"
+                              disabled={deletingDocId === doc.id}
+                              onClick={() => handleDeleteDoc(doc.id, doc.name)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                       )

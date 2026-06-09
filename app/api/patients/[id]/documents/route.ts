@@ -70,7 +70,7 @@ export async function POST(
   }
 }
 
-// DELETE /api/patients/[id]/documents?docId=xxx  — remove a document
+// DELETE /api/patients/[id]/documents?docId=xxx  — remove a document (admin only)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -78,6 +78,8 @@ export async function DELETE(
   try {
     const user = await getRequestUser(request)
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    if (user.role !== "admin")
+      return NextResponse.json({ error: "Only admin can delete patient documents" }, { status: 403 })
 
     const { id } = await params
     const docId = new URL(request.url).searchParams.get("docId")
