@@ -39,10 +39,39 @@ export interface IPatient extends Document {
     uploadedAt: string
     uploadedBy: string
     url: string
+    treatmentId?: string
   }[]
   createdAt: Date
   updatedAt: Date
 }
+
+// Subdoc schemas defined explicitly — both have a field literally named `type`
+// which Mongoose would otherwise mistake for a SchemaType definition and
+// collapse the whole array down to `[String]`. The `new Schema(...)` wrapper
+// removes that ambiguity.
+const MedicalHistorySubSchema = new Schema(
+  {
+    id: { type: String, default: "" },
+    date: { type: String, default: "" },
+    type: { type: String, default: "" },
+    description: { type: String, default: "" },
+    addedBy: { type: String, default: "" },
+  },
+  { _id: false }
+)
+
+const PatientDocumentSubSchema = new Schema(
+  {
+    id: { type: String, default: "" },
+    name: { type: String, default: "" },
+    type: { type: String, default: "" },
+    uploadedAt: { type: String, default: "" },
+    uploadedBy: { type: String, default: "" },
+    url: { type: String, default: "" },
+    treatmentId: { type: String, default: "" },
+  },
+  { _id: false }
+)
 
 const PatientSchema = new Schema<IPatient>(
   {
@@ -57,26 +86,8 @@ const PatientSchema = new Schema<IPatient>(
     tags: [{ type: String }],
     notes: { type: String, default: "" },
     assignedDoctorId: { type: String, default: "" },
-    medicalHistory: [
-      {
-        id: String,
-        date: String,
-        type: String,
-        description: String,
-        addedBy: String,
-      },
-    ],
-    documents: [
-      {
-        id: String,
-        name: String,
-        type: String,
-        uploadedAt: String,
-        uploadedBy: String,
-        url: String,
-        treatmentId: { type: String, default: "" },
-      },
-    ],
+    medicalHistory: { type: [MedicalHistorySubSchema], default: [] },
+    documents: { type: [PatientDocumentSubSchema], default: [] },
   },
   {
     timestamps: true,
