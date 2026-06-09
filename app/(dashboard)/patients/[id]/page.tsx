@@ -372,36 +372,60 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
                   <div className="flex flex-col gap-3">
                     {treatments.map((tr) => {
                       const treatingDoctor = getDoctor(tr.doctorId)
+                      const trDocs = documents.filter((d) => d.treatmentId === tr.id)
                       return (
-                        <Link
+                        <div
                           key={tr.id}
-                          href={`/treatments/${tr.id}`}
-                          className="flex flex-col gap-2 rounded-lg border border-border/70 p-3 hover:bg-accent/30 transition-colors"
+                          className="overflow-hidden rounded-lg border border-border/70 transition-colors hover:border-border"
                         >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-semibold text-foreground">
-                              {tr.diagnosis || "—"}
-                            </span>
-                            <StatusBadge status={tr.status} />
-                          </div>
-                          {tr.complaint && (
-                            <p className="text-xs text-muted-foreground line-clamp-2">
-                              {tr.complaint}
-                            </p>
+                          <Link
+                            href={`/treatments/${tr.id}`}
+                            className="flex flex-col gap-2 p-3 transition-colors hover:bg-accent/30"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-semibold text-foreground">
+                                {tr.diagnosis || "—"}
+                              </span>
+                              <StatusBadge status={tr.status} />
+                            </div>
+                            {tr.complaint && (
+                              <p className="text-xs text-muted-foreground line-clamp-2">
+                                {tr.complaint}
+                              </p>
+                            )}
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <Stethoscope className="h-3 w-3" />
+                                {treatingDoctor?.name ?? "—"}
+                              </span>
+                              <span>{tr.date}</span>
+                            </div>
+                            {tr.followUpDate && (
+                              <p className="text-xs text-amber-600">
+                                Follow-up: {tr.followUpDate}
+                              </p>
+                            )}
+                          </Link>
+                          {trDocs.length > 0 && (
+                            <div className="flex flex-col gap-1 border-t border-border/60 bg-muted/30 px-3 py-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                                Attachments ({trDocs.length})
+                              </p>
+                              {trDocs.map((d) => (
+                                <a
+                                  key={d.id}
+                                  href={d.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex items-center gap-1.5 text-xs text-foreground transition-colors hover:text-primary"
+                                >
+                                  <FileText className="h-3 w-3 shrink-0 text-primary/60" />
+                                  <span className="truncate">{d.name}</span>
+                                </a>
+                              ))}
+                            </div>
                           )}
-                          <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Stethoscope className="h-3 w-3" />
-                              {treatingDoctor?.name ?? "—"}
-                            </span>
-                            <span>{tr.date}</span>
-                          </div>
-                          {tr.followUpDate && (
-                            <p className="text-xs text-amber-600">
-                              Follow-up: {tr.followUpDate}
-                            </p>
-                          )}
-                        </Link>
+                        </div>
                       )
                     })}
                   </div>
@@ -454,7 +478,11 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    {documents.map((doc) => (
+                    {documents.map((doc) => {
+                      const linkedTreatment = doc.treatmentId
+                        ? treatments.find((t) => t.id === doc.treatmentId)
+                        : null
+                      return (
                       <div
                         key={doc.id}
                         className="flex items-center gap-3 rounded-lg border border-border/70 px-3 py-2.5"
@@ -464,6 +492,17 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
                           <p className="text-sm font-medium truncate">{doc.name}</p>
                           <p className="text-xs text-muted-foreground">
                             {doc.uploadedAt} · {doc.uploadedBy}
+                            {linkedTreatment && (
+                              <>
+                                {" · "}
+                                <Link
+                                  href={`/treatments/${linkedTreatment.id}`}
+                                  className="text-primary hover:underline"
+                                >
+                                  From treatment · {linkedTreatment.date}
+                                </Link>
+                              </>
+                            )}
                           </p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
@@ -502,7 +541,8 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
                           </Button>
                         </div>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </CardContent>

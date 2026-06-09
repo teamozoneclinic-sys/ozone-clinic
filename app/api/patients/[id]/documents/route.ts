@@ -18,7 +18,7 @@ export async function POST(
     const { id } = await params
     await connectDB()
 
-    let body: { filename?: string; contentType?: string; data?: string }
+    let body: { filename?: string; contentType?: string; data?: string; treatmentId?: string }
     try {
       body = await request.json()
     } catch {
@@ -28,7 +28,7 @@ export async function POST(
       )
     }
 
-    const { filename, contentType, data: base64 } = body
+    const { filename, contentType, data: base64, treatmentId } = body
     if (!filename || !contentType || !base64)
       return NextResponse.json({ error: "Missing fields" }, { status: 400 })
 
@@ -50,6 +50,7 @@ export async function POST(
       uploadedAt: new Date().toISOString().split("T")[0],
       uploadedBy: user.name || user.email,
       url: `${origin}/api/patient-files/${file._id}`,
+      treatmentId: typeof treatmentId === "string" ? treatmentId : "",
     }
 
     const patient = await Patient.findByIdAndUpdate(

@@ -74,6 +74,7 @@ const PatientSchema = new Schema<IPatient>(
         uploadedAt: String,
         uploadedBy: String,
         url: String,
+        treatmentId: { type: String, default: "" },
       },
     ],
   },

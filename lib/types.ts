@@ -49,6 +49,8 @@ export interface PatientDocument {
   uploadedAt: string
   uploadedBy: string
   url: string
+  /** Set when the document was attached during a clinical encounter. */
+  treatmentId?: string
 }
 
 export type AppointmentStatus =
