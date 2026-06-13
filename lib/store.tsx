@@ -496,14 +496,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setAppointments((prev) => prev.map((a) => (a.id === appointmentId ? res.data : a)))
   }, [])
 
-  // ── Live data refresh (polls appointments + treatments + invoices) ─────
+  // ── Live data refresh (polls patients + appointments + treatments + invoices) ─
+  // Patients are included so records created server-side (e.g. by the WhatsApp
+  // bot) appear in the store without a full page reload. The patients-list
+  // payload is slim — heavy `documents` and `medicalHistory` arrays are
+  // stripped server-side and fetched on demand from the patient detail page.
   const refreshLiveData = useCallback(async () => {
     try {
-      const [appointmentsRes, treatmentsRes, invoicesRes] = await Promise.all([
+      const [patientsRes, appointmentsRes, treatmentsRes, invoicesRes] = await Promise.all([
+        apiFetch<{ data: Patient[] }>("/api/patients"),
         apiFetch<{ data: Appointment[] }>("/api/appointments"),
         apiFetch<{ data: Treatment[] }>("/api/treatments"),
         apiFetch<{ data: Invoice[] }>("/api/invoices"),
       ])
+      setPatients(patientsRes.data)
       setAppointments(appointmentsRes.data)
       setTreatments(treatmentsRes.data)
       setInvoices(invoicesRes.data)
