@@ -39,7 +39,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
-  User,
   Stethoscope,
   Receipt,
   FileText,
@@ -881,8 +880,10 @@ function AppointmentDetailContent({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {[15, 30, 45, 60, 90, 120].map((d) => (
-                            <SelectItem key={d} value={String(d)}>{d} minutes</SelectItem>
+                          {[5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60].map((d) => (
+                            <SelectItem key={d} value={String(d)}>
+                              {d === 60 ? "1 hour" : `${d} min`}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>

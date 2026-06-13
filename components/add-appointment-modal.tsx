@@ -671,11 +671,18 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="5">5 min</SelectItem>
+                      <SelectItem value="10">10 min</SelectItem>
                       <SelectItem value="15">15 min</SelectItem>
+                      <SelectItem value="20">20 min</SelectItem>
+                      <SelectItem value="25">25 min</SelectItem>
                       <SelectItem value="30">30 min</SelectItem>
+                      <SelectItem value="35">35 min</SelectItem>
+                      <SelectItem value="40">40 min</SelectItem>
                       <SelectItem value="45">45 min</SelectItem>
-                      <SelectItem value="60">60 min</SelectItem>
-                      <SelectItem value="90">90 min</SelectItem>
+                      <SelectItem value="50">50 min</SelectItem>
+                      <SelectItem value="55">55 min</SelectItem>
+                      <SelectItem value="60">1 hour</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
