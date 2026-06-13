@@ -3,7 +3,7 @@ import { connectDB } from "@/lib/mongodb"
 import Doctor from "@/lib/models/Doctor"
 import User from "@/lib/models/User"
 import { getRequestUser } from "@/lib/auth"
-import { CLINIC_EMAIL_DOMAIN } from "@/lib/utils"
+import { CLINIC_EMAIL_DOMAIN, toClinicEmail } from "@/lib/utils"
 
 // Derive email + password from a doctor's name
 // e.g. "Dr. Ahmed Khan" → email: "dr.ahmedkhan@ozoneclinic.com", password: "ahmedkhan123"
@@ -33,6 +33,9 @@ export async function POST(request: NextRequest) {
   try {
     await connectDB()
     const body = await request.json()
+    // Force every doctor email onto the clinic domain — defence in depth
+    // against direct API calls that bypass the client-side check.
+    if (body.email) body.email = toClinicEmail(body.email)
     const doctor = await Doctor.create(body)
 
     // Auto-create login credentials for the new doctor

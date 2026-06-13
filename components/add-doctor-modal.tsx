@@ -130,8 +130,8 @@ export function AddDoctorModal({ open, onOpenChange }: AddDoctorModalProps) {
     }
     if (!specialty) { toast.error("Please select a specialty."); return }
     if (!type) { toast.error("Please select a doctor type."); return }
-    if (email.trim() && !email.trim().toLowerCase().endsWith("@ozonehospital.com")) {
-      toast.error("Email must end with @ozonehospital.com"); return
+    if (email.trim() && !email.trim().toLowerCase().endsWith("@ozoneclinic.com")) {
+      toast.error("Email must end with @ozoneclinic.com"); return
     }
 
     // Validate schedule: endTime must be after startTime
@@ -245,7 +245,7 @@ export function AddDoctorModal({ open, onOpenChange }: AddDoctorModalProps) {
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="doctor@ozonehospital.com"
+                  placeholder="doctor@ozoneclinic.com"
                   className="h-10"
                 />
               </div>
