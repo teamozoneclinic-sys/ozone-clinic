@@ -43,6 +43,7 @@ import {
   Stethoscope,
   Receipt,
   FileText,
+  FlaskConical,
   Pencil,
   Trash2,
   Save,
@@ -64,6 +65,38 @@ function formatHour(hour: number): string {
   if (hour < 12) return `${hour} AM`
   if (hour === 12) return "12 PM"
   return `${hour - 12} PM`
+}
+
+// "17:00" → "5:00 PM"
+function formatTime12h(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number)
+  if (Number.isNaN(h)) return hhmm
+  const period = h >= 12 ? "PM" : "AM"
+  const hour = h % 12 === 0 ? 12 : h % 12
+  return `${hour}:${String(m || 0).padStart(2, "0")} ${period}`
+}
+
+// "2026-06-15" → "Monday, 15 June 2026"
+function formatDateLong(iso: string): string {
+  const d = new Date(iso + "T00:00:00")
+  if (isNaN(d.getTime())) return iso
+  return d.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  })
+}
+
+// "Hafiz Abubakar" → "HA"
+function initials(name?: string): string {
+  return (name ?? "?")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase()
 }
 
 const TODAY = getPKTDateString()
@@ -571,83 +604,164 @@ function AppointmentDetailContent({
       <SheetHeader>
         <SheetTitle>Appointment Details</SheetTitle>
         <SheetDescription>
-          {appointment.date} at {appointment.time}
+          {formatDateLong(appointment.date)} at {formatTime12h(appointment.time)}
         </SheetDescription>
       </SheetHeader>
 
-      <div className="mt-6 flex flex-col gap-5">
+      <div className="mt-6 flex flex-col gap-4">
         {/* Status + type */}
         <div className="flex items-center gap-2 flex-wrap">
           <StatusBadge status={appointment.status} />
-          <Badge variant="outline">{appointment.type}</Badge>
+          <Badge variant="outline" className="capitalize">
+            {appointment.type.replace(/-/g, " ")}
+          </Badge>
         </div>
 
-        {/* Info rows */}
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-3">
-            <User className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-xs text-muted-foreground">Patient</p>
-              <Link href={`/patients/${appointment.patientId}`} className="text-sm font-medium hover:text-primary">
-                {patient?.name ?? "Unknown"}
-              </Link>
-            </div>
+        {/* Patient — prominent card with avatar + quick contact */}
+        <Link
+          href={`/patients/${appointment.patientId}`}
+          className="group flex items-center gap-3 rounded-lg border border-border/60 bg-card p-3 transition-colors hover:bg-accent/50"
+        >
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+            {initials(patient?.name)}
           </div>
-          <div className="flex items-center gap-3">
-            <Stethoscope className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-xs text-muted-foreground">Doctor</p>
-              <p className={`text-sm font-medium ${!appointment.doctorId ? "text-amber-600" : ""}`}>
-                {doctor?.name ?? (appointment.doctorId ? "Unknown" : "Not assigned yet")}
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Patient
+            </p>
+            <p className="truncate text-sm font-semibold transition-colors group-hover:text-primary">
+              {patient?.name ?? "Unknown"}
+            </p>
+            {patient?.phone && (
+              <p className="truncate text-xs text-muted-foreground">{patient.phone}</p>
+            )}
+          </div>
+        </Link>
+
+        {/* When + Doctor — grouped card with subtle dividers */}
+        <div className="divide-y divide-border/60 rounded-lg border border-border/60 bg-card">
+          <div className="flex items-start gap-3 p-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100">
+              <Clock className="h-4 w-4 text-blue-600" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                When
+              </p>
+              <p className="text-sm font-medium">{formatDateLong(appointment.date)}</p>
+              <p className="text-xs text-muted-foreground">
+                {formatTime12h(appointment.time)} · {appointment.duration} min
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <p className="text-xs text-muted-foreground">Date / Time / Duration</p>
-              <p className="text-sm font-medium">{appointment.date} · {appointment.time} · {appointment.duration} min</p>
+          <div className="flex items-start gap-3 p-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-teal-100">
+              <Stethoscope className="h-4 w-4 text-teal-600" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Doctor
+              </p>
+              <p
+                className={`text-sm font-medium ${!appointment.doctorId ? "text-amber-600" : ""}`}
+              >
+                {doctor?.name ?? (appointment.doctorId ? "Unknown" : "Not assigned yet")}
+              </p>
+              {doctor?.specialty && (
+                <p className="text-xs text-muted-foreground">{doctor.specialty}</p>
+              )}
             </div>
           </div>
-          {invoice && (
-            <div className="flex items-center gap-3">
-              <Receipt className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <div>
-                <p className="text-xs text-muted-foreground">Invoice</p>
-                <Link href={`/billing/${invoice.id}`} className="text-sm font-medium hover:text-primary">
-                  #{invoice.id.slice(-8)} — Rs. {invoice.totalAmount.toLocaleString()} (<StatusBadge status={invoice.status} />)
-                </Link>
-              </div>
-            </div>
-          )}
         </div>
+
+        {/* Procedures (if any) — distinct card */}
+        {(() => {
+          const procedures = (invoice?.lineItems ?? []).filter((li) => li.category === "procedure")
+          if (procedures.length === 0) return null
+          return (
+            <div className="rounded-lg border border-border/60 bg-card p-3">
+              <div className="mb-2 flex items-center gap-2">
+                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-100">
+                  <FlaskConical className="h-3.5 w-3.5 text-purple-600" />
+                </div>
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Procedure{procedures.length > 1 ? "s" : ""}
+                </p>
+              </div>
+              <ul className="flex flex-col gap-1">
+                {procedures.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-sm"
+                  >
+                    <span className="min-w-0 truncate font-medium">{p.description}</span>
+                    <span className="shrink-0 font-semibold text-muted-foreground">
+                      Rs. {(p.amount * p.quantity).toLocaleString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        })()}
+
+        {/* Invoice — financial card */}
+        {invoice && (
+          <Link
+            href={`/billing/${invoice.id}`}
+            className="group flex items-center gap-3 rounded-lg border border-border/60 bg-card p-3 transition-colors hover:bg-accent/50"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+              <Receipt className="h-4 w-4 text-emerald-600" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Invoice
+              </p>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold transition-colors group-hover:text-primary">
+                  Rs. {invoice.totalAmount.toLocaleString()}
+                </span>
+                <StatusBadge status={invoice.status} />
+              </div>
+              <p className="truncate font-mono text-[10px] text-muted-foreground">
+                #{invoice.id.slice(-8)}
+              </p>
+            </div>
+          </Link>
+        )}
 
         {/* Notes */}
         {(appointment.notes || appointment.receptionNotes || appointment.doctorNotes) && (
-          <>
-            <Separator />
+          <div className="flex flex-col gap-2">
             {appointment.notes && (
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <FileText className="h-4 w-4 text-muted-foreground" />
-                  <p className="text-sm font-medium">Notes</p>
+              <div className="rounded-lg border border-border/60 bg-card p-3">
+                <div className="mb-1.5 flex items-center gap-2">
+                  <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Notes
+                  </p>
                 </div>
-                <p className="text-sm text-muted-foreground rounded-lg bg-muted p-3">{appointment.notes}</p>
+                <p className="text-sm whitespace-pre-wrap">{appointment.notes}</p>
               </div>
             )}
             {appointment.receptionNotes && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1">Reception Notes</p>
-                <p className="text-sm text-muted-foreground rounded-lg bg-muted p-3">{appointment.receptionNotes}</p>
+              <div className="rounded-lg border border-border/60 bg-card p-3">
+                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Reception Notes
+                </p>
+                <p className="text-sm whitespace-pre-wrap">{appointment.receptionNotes}</p>
               </div>
             )}
             {appointment.doctorNotes && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1">Doctor Notes</p>
-                <p className="text-sm text-muted-foreground rounded-lg bg-muted p-3">{appointment.doctorNotes}</p>
+              <div className="rounded-lg border border-border/60 bg-card p-3">
+                <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Doctor Notes
+                </p>
+                <p className="text-sm whitespace-pre-wrap">{appointment.doctorNotes}</p>
               </div>
             )}
-          </>
+          </div>
         )}
 
         {/* ── Actions ── */}

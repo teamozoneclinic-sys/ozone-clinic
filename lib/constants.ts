@@ -112,6 +112,7 @@ export const SPECIALTIES = [
   "Gastroenterology",
   "Rheumatology",
   "Infectious Disease",
+  "Radiology",
 ] as const
 
 export const ROLE_PERMISSIONS: RolePermissions[] = [
