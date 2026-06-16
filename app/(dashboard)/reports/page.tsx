@@ -128,17 +128,21 @@ export default function ReportsPage() {
   const periodLabel = period === "today" ? TODAY : `${from} → ${to}`
 
   // ── Payments in selected date range ──────────────────────────────────────
+  // Voided invoices are skipped — their payments don't count toward
+  // collections, doctor revenue, or any chart on this page.
   const allPayments = useMemo(
     () =>
-      invoices.flatMap((inv) =>
-        inv.payments
-          .filter((p) => inRange(p.collectedAt, from, to))
-          .map((p) => ({
-            ...p,
-            doctorId: inv.doctorId,
-            patientId: inv.patientId,
-          }))
-      ),
+      invoices
+        .filter((inv) => inv.status !== "voided")
+        .flatMap((inv) =>
+          inv.payments
+            .filter((p) => inRange(p.collectedAt, from, to))
+            .map((p) => ({
+              ...p,
+              doctorId: inv.doctorId,
+              patientId: inv.patientId,
+            }))
+        ),
     [invoices, from, to]
   )
 
@@ -161,19 +165,23 @@ export default function ReportsPage() {
 
   // Monthly revenue — sum of payments collected within the current calendar
   // month (resets on the 1st). Replaces the old "all-time total revenue" KPI.
+  // Voided invoices are excluded — their payments are tracked as refundDue and
+  // must not inflate revenue.
   const monthlyRevenue = useMemo(() => {
     const today = new Date(TODAY)
     const yyyy = today.getFullYear()
     const mm = String(today.getMonth() + 1).padStart(2, "0")
     const monthPrefix = `${yyyy}-${mm}`
-    return invoices.reduce((sum, inv) => {
-      return (
-        sum +
-        inv.payments
-          .filter((p) => (p.collectedAt ?? "").startsWith(monthPrefix))
-          .reduce((s, p) => s + p.amount, 0)
-      )
-    }, 0)
+    return invoices
+      .filter((inv) => inv.status !== "voided")
+      .reduce((sum, inv) => {
+        return (
+          sum +
+          inv.payments
+            .filter((p) => (p.collectedAt ?? "").startsWith(monthPrefix))
+            .reduce((s, p) => s + p.amount, 0)
+        )
+      }, 0)
   }, [invoices])
 
   const monthLabel = new Date(TODAY).toLocaleDateString("en-PK", {

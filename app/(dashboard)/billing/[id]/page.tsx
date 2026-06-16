@@ -33,7 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { User, Stethoscope, CalendarDays, CreditCard, Trash2, Download, Receipt, MessageCircle, Plus, Pencil } from "lucide-react"
+import { User, Stethoscope, CalendarDays, CreditCard, Trash2, Download, Receipt, MessageCircle, Plus, Pencil, AlertTriangle, Loader2 } from "lucide-react"
 import { PAYMENT_METHODS } from "@/lib/constants"
 import { toast } from "sonner"
 import Link from "next/link"
@@ -42,10 +42,11 @@ import { InvoiceReceiptDialog } from "@/components/invoice-receipt-dialog"
 
 export default function InvoiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { getInvoice, getPatient, getDoctor, getAppointment, hasPermission, currentUser, clinicSettings } = useStore()
+  const { getInvoice, getPatient, getDoctor, getAppointment, hasPermission, currentUser, clinicSettings, voidInvoice } = useStore()
   const [showPaymentModal, setShowPaymentModal] = useState(false)
   const [showDiscountModal, setShowDiscountModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
+  const [showVoidModal, setShowVoidModal] = useState(false)
   const [receiptPayment, setReceiptPayment] = useState<Payment | null>(null)
   const [sendingWA, setSendingWA] = useState(false)
 
@@ -162,7 +163,7 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
               </Button>
             )}
             {canVoid && invoice.status !== "voided" && (
-              <Button variant="destructive" size="sm" onClick={() => toast.info("Void feature coming soon.")}>
+              <Button variant="destructive" size="sm" onClick={() => setShowVoidModal(true)}>
                 <Trash2 className="mr-1 h-4 w-4" />
                 Void
               </Button>
@@ -376,7 +377,153 @@ export default function InvoiceDetailPage({ params }: { params: Promise<{ id: st
           appointment={appointment ? { date: appointment.date, time: appointment.time } : undefined}
         />
       )}
+
+      {/* Void Invoice Modal */}
+      <VoidInvoiceModal
+        open={showVoidModal}
+        onOpenChange={setShowVoidModal}
+        invoice={invoice}
+        patientName={patient?.name ?? "Unknown"}
+        onConfirm={async (reason) => {
+          await voidInvoice(invoice.id, reason)
+          toast.success(
+            invoice.paidAmount > 0
+              ? `Invoice voided. Rs. ${invoice.paidAmount.toLocaleString()} marked as refund due to patient.`
+              : "Invoice voided."
+          )
+          setShowVoidModal(false)
+        }}
+      />
     </>
+  )
+}
+
+// ─── Void Invoice Modal ────────────────────────────────────────────────────
+function VoidInvoiceModal({
+  open,
+  onOpenChange,
+  invoice,
+  patientName,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  invoice: Invoice
+  patientName: string
+  onConfirm: (reason: string) => Promise<void>
+}) {
+  const [reason, setReason] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const wasPaid = invoice.paidAmount > 0
+
+  // Reset form when the dialog opens
+  useEffect(() => {
+    if (open) {
+      setReason("")
+      setSubmitting(false)
+    }
+  }, [open])
+
+  const handleSubmit = async () => {
+    const r = reason.trim()
+    if (!r) {
+      toast.error("Please provide a reason for voiding this invoice.")
+      return
+    }
+    setSubmitting(true)
+    try {
+      await onConfirm(r)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to void invoice.")
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!submitting) onOpenChange(v) }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            Void Invoice
+          </DialogTitle>
+          <DialogDescription>
+            Mark this invoice as voided. It will be removed from revenue and outstanding totals
+            but remain on record for audit purposes.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4 py-2">
+          {/* Summary of what's being voided */}
+          <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Patient</span>
+              <span className="font-medium">{patientName}</span>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between">
+              <span className="text-muted-foreground">Invoice total</span>
+              <span className="font-medium">Rs. {invoice.totalAmount.toLocaleString()}</span>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between">
+              <span className="text-muted-foreground">Already paid</span>
+              <span className={`font-medium ${wasPaid ? "text-emerald-700" : ""}`}>
+                Rs. {invoice.paidAmount.toLocaleString()}
+              </span>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between">
+              <span className="text-muted-foreground">Outstanding</span>
+              <span className="font-medium">Rs. {invoice.balance.toLocaleString()}</span>
+            </div>
+          </div>
+
+          {wasPaid && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              <strong>Refund warning:</strong> Rs. {invoice.paidAmount.toLocaleString()} has
+              already been collected. Voiding will mark this amount as <strong>refund due</strong> to
+              the patient — please process the refund separately.
+            </div>
+          )}
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="void-reason" className="text-sm font-medium">
+              Reason <span className="text-red-500">*</span>
+            </Label>
+            <Textarea
+              id="void-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Duplicate invoice, billing error, patient cancelled service…"
+              rows={3}
+              maxLength={500}
+              disabled={submitting}
+              className="resize-none"
+            />
+            <p className="text-[11px] text-muted-foreground text-right">
+              {reason.length}/500
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={handleSubmit}
+            disabled={submitting || !reason.trim()}
+            className="gap-1.5"
+          >
+            {submitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            {submitting ? "Voiding…" : "Void Invoice"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

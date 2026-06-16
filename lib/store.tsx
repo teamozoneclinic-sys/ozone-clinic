@@ -88,6 +88,7 @@ interface StoreState {
     invoiceId: string,
     lineItems: { id?: string; description: string; amount: number; quantity: number; category?: string }[]
   ) => Promise<Invoice>
+  voidInvoice: (invoiceId: string, reason: string) => Promise<Invoice>
   createTreatment: (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">) => Promise<Treatment>
   updateTreatment: (id: string, data: Partial<Omit<Treatment, "id" | "createdAt" | "updatedAt">> & { customProcedures?: { name: string; amount: number }[]; newTestIds?: string[] }) => Promise<{ treatment: Treatment; invoice: Invoice | null }>
   updateAppointmentStatus: (appointmentId: string, status: Appointment["status"]) => Promise<void>
@@ -359,6 +360,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     []
   )
 
+  // Void an invoice (admin/manager per matrix). The server stamps the
+  // reason + audit log and zeroes the balance so it drops out of outstanding
+  // totals. Revenue cards filter on status !== "voided" to drop the void
+  // from monthly/total revenue as well.
+  const voidInvoice = useCallback(
+    async (invoiceId: string, reason: string): Promise<Invoice> => {
+      const res = await apiFetch<{ data: Invoice }>(`/api/invoices/${invoiceId}/void`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      })
+      setInvoices((prev) => prev.map((inv) => (inv.id === invoiceId ? res.data : inv)))
+      return res.data
+    },
+    []
+  )
+
   const createTreatment = useCallback(
     async (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">): Promise<Treatment> => {
       const res = await apiFetch<{ data: Treatment; invoice: Invoice | null }>("/api/treatments", {
@@ -595,7 +612,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   )
 
   const getTotalRevenue = useCallback(
-    () => invoices.reduce((sum, i) => sum + i.paidAmount, 0),
+    // Voided invoices are excluded — their payments are tracked as `refundDue`
+    // and must not inflate revenue (per business rule).
+    () => invoices.filter((i) => i.status !== "voided").reduce((sum, i) => sum + i.paidAmount, 0),
     [invoices]
   )
 
@@ -630,6 +649,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         addAppointment,
         collectPayment,
         editInvoice,
+        voidInvoice,
         createTreatment,
         updateTreatment,
         updateAppointmentStatus,

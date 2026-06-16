@@ -49,6 +49,7 @@ import {
   Loader2,
   UserCog,
   ArrowRight,
+  MessageCircle,
 } from "lucide-react"
 import Link from "next/link"
 import type { PatientDocument } from "@/lib/types"
@@ -130,7 +131,26 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
   const [loadingDocs, setLoadingDocs] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null)
+  const [sendingDocId, setSendingDocId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Send a stored document to the patient on WhatsApp (greeting + file)
+  const handleSendDocOnWhatsApp = async (docId: string, docName: string) => {
+    setSendingDocId(docId)
+    try {
+      const res = await fetch(
+        `/api/patients/${patientId}/documents/${docId}/send-whatsapp`,
+        { method: "POST" }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Send failed (${res.status})`)
+      toast.success(`"${docName}" sent to ${patient.name} on WhatsApp.`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send on WhatsApp.")
+    } finally {
+      setSendingDocId(null)
+    }
+  }
 
   // Fetch the freshest copy of the patient on mount — newly uploaded documents
   // (added in an encounter) may not be in the store snapshot yet. Also kick a
@@ -471,16 +491,41 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
                                 Attachments ({trDocs.length})
                               </p>
                               {trDocs.map((d) => (
-                                <a
+                                <div
                                   key={d.id}
-                                  href={d.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="flex items-center gap-1.5 text-xs text-foreground transition-colors hover:text-primary"
+                                  className="flex items-center gap-1.5 text-xs"
                                 >
-                                  <FileText className="h-3 w-3 shrink-0 text-primary/60" />
-                                  <span className="truncate">{d.name}</span>
-                                </a>
+                                  <a
+                                    href={d.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex flex-1 min-w-0 items-center gap-1.5 text-foreground transition-colors hover:text-primary"
+                                  >
+                                    <FileText className="h-3 w-3 shrink-0 text-primary/60" />
+                                    <span className="truncate">{d.name}</span>
+                                  </a>
+                                  <button
+                                    type="button"
+                                    title={
+                                      patient.phone
+                                        ? `Send to ${patient.name} on WhatsApp`
+                                        : "Patient has no phone on file"
+                                    }
+                                    disabled={sendingDocId === d.id || !patient.phone}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      e.preventDefault()
+                                      handleSendDocOnWhatsApp(d.id, d.name)
+                                    }}
+                                    className="flex h-6 w-6 items-center justify-center rounded text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-40"
+                                  >
+                                    {sendingDocId === d.id ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <MessageCircle className="h-3 w-3" />
+                                    )}
+                                  </button>
+                                </div>
                               ))}
                             </div>
                           )}
@@ -592,6 +637,24 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
                             }}
                           >
                             <Download className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                            title={
+                              patient.phone
+                                ? `Send to ${patient.name} on WhatsApp`
+                                : "Patient has no phone on file"
+                            }
+                            disabled={sendingDocId === doc.id || !patient.phone}
+                            onClick={() => handleSendDocOnWhatsApp(doc.id, doc.name)}
+                          >
+                            {sendingDocId === doc.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <MessageCircle className="h-3.5 w-3.5" />
+                            )}
                           </Button>
                           {isAdmin && (
                             <Button

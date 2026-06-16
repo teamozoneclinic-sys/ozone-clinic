@@ -122,11 +122,16 @@ export default function BillingPage() {
     })
   }, [invoices, search, doctorFilter, getPatient])
 
-  const totalOutstanding = invoices.reduce((sum, i) => sum + i.balance, 0)
+  // Voided invoices are excluded from BOTH outstanding and revenue. Their
+  // balance is forced to 0 server-side already, but the filter is kept as a
+  // safety net so a stale snapshot can't double-count voided balances.
+  const liveInvoices = invoices.filter((i) => i.status !== "voided")
 
-  // Today's collection — sum payments collected today
+  const totalOutstanding = liveInvoices.reduce((sum, i) => sum + i.balance, 0)
+
+  // Today's collection — sum payments collected today (voided invoices excluded)
   const todayStr = new Date().toISOString().slice(0, 10)
-  const todayCollection = invoices.reduce((sum, inv) => {
+  const todayCollection = liveInvoices.reduce((sum, inv) => {
     return sum + inv.payments
       .filter((p) => p.collectedAt.startsWith(todayStr))
       .reduce((s, p) => s + p.amount, 0)
@@ -135,7 +140,7 @@ export default function BillingPage() {
   // Monthly revenue — payments collected within the current calendar month.
   // Replaces the legacy all-time "Total Revenue" KPI; resets on the 1st.
   const monthPrefix = todayStr.slice(0, 7) // YYYY-MM
-  const monthlyRevenue = invoices.reduce((sum, inv) => {
+  const monthlyRevenue = liveInvoices.reduce((sum, inv) => {
     return sum + inv.payments
       .filter((p) => (p.collectedAt ?? "").startsWith(monthPrefix))
       .reduce((s, p) => s + p.amount, 0)

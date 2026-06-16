@@ -18,6 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
 import {
   ClipboardList,
   Stethoscope,
@@ -35,6 +37,7 @@ import {
   Plus,
   Paperclip,
   Upload,
+  CalendarIcon,
 } from "lucide-react"
 import type { Treatment } from "@/lib/types"
 import Link from "next/link"
@@ -307,23 +310,24 @@ function EncounterForm({
   const [finalizing, setFinalizing] = useState(false)
 
   const handleFinalize = async () => {
-    // Validate follow-up date format if provided
+    // Follow-up date — the calendar always emits YYYY-MM-DD, so no parsing.
+    // Keep the existing-treatment edit path safe: a legacy DD/MM/YYYY value
+    // (from before the calendar landed) gets normalised here.
     let parsedFollowUp: string | undefined
     if (followUpDate) {
-      const match = followUpDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-      if (!match) {
-        toast.error("Follow-up date must be in DD/MM/YYYY format (e.g. 15/04/2026).")
-        setActiveSection("plan")
-        return
+      if (/^\d{4}-\d{2}-\d{2}$/.test(followUpDate)) {
+        parsedFollowUp = followUpDate
+      } else {
+        const legacy = followUpDate.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+        if (legacy) {
+          const [, dd, mm, yyyy] = legacy
+          parsedFollowUp = `${yyyy}-${mm}-${dd}`
+        } else {
+          toast.error("Invalid follow-up date. Please re-pick it from the calendar.")
+          setActiveSection("plan")
+          return
+        }
       }
-      const [, dd, mm, yyyy] = match
-      const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd))
-      if (d.getDate() !== Number(dd) || d.getMonth() !== Number(mm) - 1) {
-        toast.error("Invalid follow-up date.")
-        setActiveSection("plan")
-        return
-      }
-      parsedFollowUp = `${yyyy}-${mm}-${dd}`
     }
 
     // Validate custom procedures
@@ -583,20 +587,67 @@ function EncounterForm({
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="follow-up">Follow-up Date (DD/MM/YYYY)</Label>
-                  <Input
-                    id="follow-up"
-                    type="text"
-                    placeholder="DD/MM/YYYY"
-                    value={followUpDate}
-                    onChange={(e) => {
-                      // Allow digits and separators, auto-format to DD/MM/YYYY
-                      const raw = e.target.value.replace(/[^\d/]/g, "")
-                      if (raw.length <= 10) setFollowUpDate(raw)
-                    }}
-                    maxLength={10}
-                  />
-                  <p className="text-xs text-muted-foreground">Format: DD/MM/YYYY (e.g. 15/04/2026)</p>
+                  <Label htmlFor="follow-up">Follow-up Date</Label>
+                  <div className="flex items-center gap-2">
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          id="follow-up"
+                          type="button"
+                          variant="outline"
+                          className="h-10 flex-1 justify-start gap-2 font-normal"
+                        >
+                          <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                          {followUpDate
+                            ? new Date(followUpDate + "T00:00:00").toLocaleDateString("en-PK", {
+                                day: "2-digit",
+                                month: "long",
+                                year: "numeric",
+                              })
+                            : <span className="text-muted-foreground">Pick a follow-up date</span>}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={followUpDate ? new Date(followUpDate + "T00:00:00") : undefined}
+                          onSelect={(d) => {
+                            if (!d) {
+                              setFollowUpDate("")
+                              return
+                            }
+                            const yyyy = d.getFullYear()
+                            const mm = String(d.getMonth() + 1).padStart(2, "0")
+                            const dd = String(d.getDate()).padStart(2, "0")
+                            setFollowUpDate(`${yyyy}-${mm}-${dd}`)
+                          }}
+                          disabled={(d) => {
+                            // Block past dates — follow-ups are always upcoming.
+                            const today = new Date()
+                            today.setHours(0, 0, 0, 0)
+                            return d < today
+                          }}
+                          captionLayout="dropdown"
+                          autoFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                    {followUpDate && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10 shrink-0"
+                        onClick={() => setFollowUpDate("")}
+                        title="Clear follow-up date"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Optional — leave blank if no follow-up is needed.
+                  </p>
                 </div>
                 <div className="flex justify-between">
                   <Button variant="outline" size="sm" onClick={() => setActiveSection("diagnosis")}>

@@ -1,8 +1,12 @@
 {
   "crons": [
     {
-      "path": "/api/cron/appointment-reminders",
-      "schedule": "42 12 * * *"
+      "path": "/api/cron/appointment-reminders?window=day-before",
+      "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/appointment-reminders?window=day-of",
+      "schedule": "0 9 * * *"
     }
   ]
 }
