@@ -374,8 +374,7 @@ export default function PatientsPage() {
                               title="Delete patient"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </>
+                            </button>
                           )}
                           <Link
                             href={`/patients/${patient.id}`}
