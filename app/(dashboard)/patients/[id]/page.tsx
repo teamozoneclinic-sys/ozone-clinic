@@ -17,6 +17,21 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   CalendarDays,
   Stethoscope,
   FileText,
@@ -32,6 +47,8 @@ import {
   Trash2,
   ClipboardList,
   Loader2,
+  UserCog,
+  ArrowRight,
 } from "lucide-react"
 import Link from "next/link"
 import type { PatientDocument } from "@/lib/types"
@@ -80,9 +97,14 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
     getPatientTreatments,
     refreshLiveData,
     currentUser,
+    doctors,
+    updatePatient,
   } = useStore()
 
   const isAdmin = currentUser?.role === "admin"
+  // Spec: only admin & manager can reassign a patient's doctor.
+  const canReassignDoctor = currentUser?.role === "admin" || currentUser?.role === "manager"
+  const [showReassignModal, setShowReassignModal] = useState(false)
 
   const patient = getPatient(patientId)!
   const doctor = getDoctor(patient.assignedDoctorId)
@@ -324,8 +346,20 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
 
             <div className="flex flex-col gap-6">
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0">
                   <CardTitle className="text-base">Assigned Doctor</CardTitle>
+                  {canReassignDoctor && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={() => setShowReassignModal(true)}
+                      title={doctor ? "Change assigned doctor" : "Assign a doctor"}
+                    >
+                      <UserCog className="h-3.5 w-3.5" />
+                      {doctor ? "Change" : "Assign"}
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent>
                   {doctor ? (
@@ -789,6 +823,132 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {showReassignModal && (
+        <ChangeAssignedDoctorModal
+          patientName={patient.name}
+          currentDoctorId={patient.assignedDoctorId}
+          doctors={doctors}
+          onClose={() => setShowReassignModal(false)}
+          onSave={async (newDoctorId) => {
+            await updatePatient(patient.id, { assignedDoctorId: newDoctorId })
+            toast.success("Assigned doctor updated.")
+            setShowReassignModal(false)
+          }}
+        />
+      )}
     </>
+  )
+}
+
+// ─── Change Assigned Doctor Modal ────────────────────────────────────────────
+function ChangeAssignedDoctorModal({
+  patientName,
+  currentDoctorId,
+  doctors,
+  onClose,
+  onSave,
+}: {
+  patientName: string
+  currentDoctorId: string
+  doctors: ReturnType<typeof useStore>["doctors"]
+  onClose: () => void
+  onSave: (newDoctorId: string) => Promise<void>
+}) {
+  const [selectedId, setSelectedId] = useState(currentDoctorId || "")
+  const [saving, setSaving] = useState(false)
+  const currentDoctor = doctors.find((d) => d.id === currentDoctorId)
+  const nextDoctor = doctors.find((d) => d.id === selectedId)
+  const isUnchanged = selectedId === (currentDoctorId || "")
+
+  const handleSave = async () => {
+    if (isUnchanged) {
+      toast.info("No change — select a different doctor or cancel.")
+      return
+    }
+    setSaving(true)
+    try {
+      await onSave(selectedId)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to reassign.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v && !saving) onClose() }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserCog className="h-5 w-5 text-primary" />
+            Change Assigned Doctor
+          </DialogTitle>
+          <DialogDescription>
+            Reassign <span className="font-medium text-foreground">{patientName}</span> to a different doctor.
+            All prior appointments, treatments and invoices remain linked to their original doctor.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4 py-2">
+          {/* Current → next preview */}
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 p-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide">Current</p>
+              <p className="text-sm font-medium truncate">
+                {currentDoctor?.name ?? <span className="text-muted-foreground">No doctor assigned</span>}
+              </p>
+              {currentDoctor && (
+                <p className="text-xs text-muted-foreground truncate">{currentDoctor.specialty}</p>
+              )}
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-primary uppercase tracking-wide">New</p>
+              <p className="text-sm font-medium truncate">
+                {nextDoctor?.name ?? <span className="text-muted-foreground">Choose below</span>}
+              </p>
+              {nextDoctor && (
+                <p className="text-xs text-muted-foreground truncate">{nextDoctor.specialty}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium">Select new doctor</label>
+            <Select value={selectedId} onValueChange={setSelectedId}>
+              <SelectTrigger className="h-10">
+                <SelectValue placeholder="Pick a doctor" />
+              </SelectTrigger>
+              <SelectContent>
+                {doctors
+                  .filter((d) => d.isActive)
+                  .map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name} <span className="text-xs text-muted-foreground">· {d.specialty}</span>
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <p className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+            <strong>Note:</strong> The new doctor will gain access to this patient&apos;s full history
+            (past appointments, treatments, and uploaded documents). The previous doctor still keeps
+            access to records they personally created.
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={saving || isUnchanged} className="gap-1.5">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCog className="h-4 w-4" />}
+            {saving ? "Saving…" : "Reassign Doctor"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

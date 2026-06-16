@@ -5,7 +5,7 @@ import Appointment from "@/lib/models/Appointment"
 import Invoice from "@/lib/models/Invoice"
 import TestCatalog from "@/lib/models/TestCatalog"
 import AuditLog from "@/lib/models/AuditLog"
-import { getRequestUser } from "@/lib/auth"
+import { getRequestUser, requirePermission } from "@/lib/auth"
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRequestUser(request)
@@ -19,8 +19,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getRequestUser(request)
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const gate = await requirePermission(request, "treatments.edit")
+  if ("response" in gate) return gate.response
+  const { user } = gate
 
   await connectDB()
   const { id } = await params

@@ -77,9 +77,10 @@ function getAvatarColor(name: string) {
 }
 
 export default function PatientsPage() {
-  const { patients, doctors, getPatientInvoices, currentUser, deletePatient, updatePatient } = useStore()
-  const isAdmin = currentUser?.role === "admin"
+  const { patients, doctors, getPatientInvoices, currentUser, deletePatient, updatePatient, hasPermission } = useStore()
   const isDoctor = currentUser?.role === "doctor"
+  const canEditPatient = hasPermission("patients.edit")
+  const canDeletePatient = hasPermission("patients.delete")
   const [search, setSearch] = useState("")
   const [genderFilter, setGenderFilter] = useState<string>("all")
   const [doctorFilter, setDoctorFilter] = useState<string>("all")
@@ -355,23 +356,24 @@ export default function PatientsPage() {
                       {/* Actions */}
                       <TableCell className="pr-4 py-3">
                         <div className="flex items-center gap-1">
-                          {isAdmin && (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => setEditingPatient(patient)}
-                                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
-                                title="Edit patient"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setDeletingPatient(patient)}
-                                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all"
-                                title="Delete patient"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
+                          {canEditPatient && (
+                            <button
+                              type="button"
+                              onClick={() => setEditingPatient(patient)}
+                              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                              title="Edit patient"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {canDeletePatient && (
+                            <button
+                              type="button"
+                              onClick={() => setDeletingPatient(patient)}
+                              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-all"
+                              title="Delete patient"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             </>
                           )}
@@ -454,7 +456,9 @@ function EditPatientModal({
   onClose: () => void
   onSaved: (data: Partial<Patient>) => void
 }) {
-  const { doctors } = useStore()
+  const { doctors, currentUser } = useStore()
+  // Only admin & manager may reassign the patient's doctor (spec).
+  const canReassignDoctor = currentUser?.role === "admin" || currentUser?.role === "manager"
   const [name, setName] = useState(patient.name)
   const [phone, setPhone] = useState(patient.phone)
   const [gender, setGender] = useState<"male" | "female" | "other">(patient.gender)
@@ -612,9 +616,18 @@ function EditPatientModal({
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <Label className="text-sm font-medium">Assigned Doctor</Label>
-              <Select value={doctorId} onValueChange={setDoctorId}>
-                <SelectTrigger className="h-10"><SelectValue placeholder="Select a doctor (optional)" /></SelectTrigger>
+              <Label className="text-sm font-medium">
+                Assigned Doctor
+                {!canReassignDoctor && (
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    (admin/manager only)
+                  </span>
+                )}
+              </Label>
+              <Select value={doctorId} onValueChange={setDoctorId} disabled={!canReassignDoctor}>
+                <SelectTrigger className="h-10">
+                  <SelectValue placeholder="Select a doctor (optional)" />
+                </SelectTrigger>
                 <SelectContent>
                   {doctors.map((d) => (
                     <SelectItem key={d.id} value={d.id}>

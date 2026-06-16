@@ -39,7 +39,7 @@ import {
   Cell,
   Legend,
 } from "recharts"
-import { DollarSign, Download, Receipt, TrendingUp, Users } from "lucide-react"
+import { DollarSign, Download, Eye, EyeOff, Receipt, TrendingUp, Users } from "lucide-react"
 import Link from "next/link"
 import { getPKTDateString } from "@/lib/pkt"
 
@@ -158,7 +158,34 @@ export default function ReportsPage() {
     (inv) => inv.status === "unpaid" || inv.status === "partially-paid"
   )
   const totalOutstanding = unpaidInvoices.reduce((s, i) => s + i.balance, 0)
-  const totalRevenue = invoices.reduce((s, i) => s + i.paidAmount, 0)
+
+  // Monthly revenue — sum of payments collected within the current calendar
+  // month (resets on the 1st). Replaces the old "all-time total revenue" KPI.
+  const monthlyRevenue = useMemo(() => {
+    const today = new Date(TODAY)
+    const yyyy = today.getFullYear()
+    const mm = String(today.getMonth() + 1).padStart(2, "0")
+    const monthPrefix = `${yyyy}-${mm}`
+    return invoices.reduce((sum, inv) => {
+      return (
+        sum +
+        inv.payments
+          .filter((p) => (p.collectedAt ?? "").startsWith(monthPrefix))
+          .reduce((s, p) => s + p.amount, 0)
+      )
+    }, 0)
+  }, [invoices])
+
+  const monthLabel = new Date(TODAY).toLocaleDateString("en-PK", {
+    month: "long",
+    year: "numeric",
+  })
+
+  // Hide-amounts toggle — masks every currency display on this page until
+  // the user clicks the eye icon to reveal again.
+  const [amountsHidden, setAmountsHidden] = useState(false)
+  const MASKED = "••••••"
+  const fmt = (n: number) => (amountsHidden ? `Rs. ${MASKED}` : `Rs. ${n.toLocaleString()}`)
 
   // ── Collections by staff ──────────────────────────────────────────────────
   const byCollector = useMemo(() => {
@@ -367,6 +394,25 @@ export default function ReportsPage() {
         title="Reports"
         description="Financial summaries and operational analytics."
         breadcrumbs={[{ label: "Reports" }]}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAmountsHidden((h) => !h)}
+            className="gap-1.5"
+            title={amountsHidden ? "Show amounts" : "Hide amounts"}
+          >
+            {amountsHidden ? (
+              <>
+                <Eye className="h-3.5 w-3.5" /> Show Amounts
+              </>
+            ) : (
+              <>
+                <EyeOff className="h-3.5 w-3.5" /> Hide Amounts
+              </>
+            )}
+          </Button>
+        }
       />
 
       {/* ── Filter Bar ── */}
@@ -461,21 +507,21 @@ export default function ReportsPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
         <StatCard
           title={period === "today" ? "Today's Collections" : "Period Collections"}
-          value={`Rs. ${totalCollected.toLocaleString()}`}
+          value={fmt(totalCollected)}
           description={`${filteredPayments.length} payment${filteredPayments.length !== 1 ? "s" : ""} in period`}
           icon={DollarSign}
         />
         {currentUser?.role === "admin" && (
           <StatCard
-            title="Total Revenue"
-            value={`Rs. ${totalRevenue.toLocaleString()}`}
-            description="All-time payments received"
+            title="Monthly Revenue"
+            value={fmt(monthlyRevenue)}
+            description={`Payments collected in ${monthLabel}`}
             icon={TrendingUp}
           />
         )}
         <StatCard
           title="Outstanding Balance"
-          value={`Rs. ${totalOutstanding.toLocaleString()}`}
+          value={fmt(totalOutstanding)}
           description={`${unpaidInvoices.length} unpaid invoice${unpaidInvoices.length !== 1 ? "s" : ""}`}
           icon={Receipt}
         />
@@ -516,11 +562,11 @@ export default function ReportsPage() {
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                     <YAxis
-                      tickFormatter={(v) => `Rs.${(v / 1000).toFixed(0)}k`}
+                      tickFormatter={(v) => (amountsHidden ? "Rs.•••" : `Rs.${(v / 1000).toFixed(0)}k`)}
                       tick={{ fontSize: 11 }}
                     />
                     <Tooltip
-                      formatter={(v: number) => [`Rs. ${v.toLocaleString()}`, "Collected"]}
+                      formatter={(v: number) => [fmt(v), "Collected"]}
                     />
                     <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
                   </BarChart>
@@ -566,7 +612,7 @@ export default function ReportsPage() {
                           <TableCell className="font-medium">{c.name}</TableCell>
                           <TableCell className="text-center">{c.count}</TableCell>
                           <TableCell className="text-right font-semibold">
-                            Rs. {c.total.toLocaleString()}
+                            {fmt(c.total)}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -574,7 +620,7 @@ export default function ReportsPage() {
                         <TableCell>Total</TableCell>
                         <TableCell className="text-center">{filteredPayments.length}</TableCell>
                         <TableCell className="text-right">
-                          Rs. {totalCollected.toLocaleString()}
+                          {fmt(totalCollected)}
                         </TableCell>
                       </TableRow>
                     </TableBody>
@@ -612,7 +658,7 @@ export default function ReportsPage() {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(v: number) => `Rs. ${v.toLocaleString()}`}
+                        formatter={(v: number) => fmt(v)}
                       />
                       <Legend
                         formatter={(value) => (
@@ -690,7 +736,7 @@ export default function ReportsPage() {
                         </TableCell>
                         <TableCell>{p.collectedBy}</TableCell>
                         <TableCell className="text-right font-semibold">
-                          Rs. {p.amount.toLocaleString()}
+                          {fmt(p.amount)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -729,7 +775,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold text-emerald-900 dark:text-emerald-300">
-                  Rs. {agingTotals["0-7"].toLocaleString()}
+                  {fmt(agingTotals["0-7"])}
                 </p>
                 <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-500">
                   {aging["0-7"].length} invoice{aging["0-7"].length !== 1 ? "s" : ""}
@@ -744,7 +790,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold text-amber-900 dark:text-amber-300">
-                  Rs. {agingTotals["8-30"].toLocaleString()}
+                  {fmt(agingTotals["8-30"])}
                 </p>
                 <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
                   {aging["8-30"].length} invoice{aging["8-30"].length !== 1 ? "s" : ""}
@@ -759,7 +805,7 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold text-red-900 dark:text-red-300">
-                  Rs. {agingTotals["31+"].toLocaleString()}
+                  {fmt(agingTotals["31+"])}
                 </p>
                 <p className="mt-1 text-xs text-red-700 dark:text-red-500">
                   {aging["31+"].length} invoice{aging["31+"].length !== 1 ? "s" : ""}
@@ -792,11 +838,11 @@ export default function ReportsPage() {
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                     <XAxis
                       type="number"
-                      tickFormatter={(v) => `Rs.${(v / 1000).toFixed(0)}k`}
+                      tickFormatter={(v) => (amountsHidden ? "Rs.•••" : `Rs.${(v / 1000).toFixed(0)}k`)}
                       tick={{ fontSize: 11 }}
                     />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={80} />
-                    <Tooltip formatter={(v: number) => `Rs. ${v.toLocaleString()}`} />
+                    <Tooltip formatter={(v: number) => fmt(v)} />
                     <Legend />
                     <Bar dataKey="0-7 Days" fill="#10b981" stackId="a" />
                     <Bar dataKey="8-30 Days" fill="#f59e0b" stackId="a" />
@@ -820,8 +866,8 @@ export default function ReportsPage() {
                     Overdue
                   </CardTitle>
                   <CardDescription>
-                    {aging[bucket].length} invoice{aging[bucket].length !== 1 ? "s" : ""} — Rs.{" "}
-                    {agingTotals[bucket].toLocaleString()} outstanding
+                    {aging[bucket].length} invoice{aging[bucket].length !== 1 ? "s" : ""} —{" "}
+                    {fmt(agingTotals[bucket])} outstanding
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -884,7 +930,7 @@ export default function ReportsPage() {
                               <StatusBadge status={inv.status} />
                             </TableCell>
                             <TableCell className="text-right font-semibold">
-                              Rs. {inv.balance.toLocaleString()}
+                              {fmt(inv.balance)}
                             </TableCell>
                           </TableRow>
                         )
@@ -918,10 +964,10 @@ export default function ReportsPage() {
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                     <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                     <YAxis
-                      tickFormatter={(v) => `Rs.${(v / 1000).toFixed(0)}k`}
+                      tickFormatter={(v) => (amountsHidden ? "Rs.•••" : `Rs.${(v / 1000).toFixed(0)}k`)}
                       tick={{ fontSize: 11 }}
                     />
-                    <Tooltip formatter={(v: number) => `Rs. ${v.toLocaleString()}`} />
+                    <Tooltip formatter={(v: number) => fmt(v)} />
                     <Legend />
                     <Bar dataKey="Billed" fill="#6366f1" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="Collected" fill="#10b981" radius={[4, 4, 0, 0]} />
@@ -980,13 +1026,13 @@ export default function ReportsPage() {
                             </TableCell>
                             <TableCell className="text-center">{invoiceCount}</TableCell>
                             <TableCell className="text-right">
-                              Rs. {totalBilled.toLocaleString()}
+                              {fmt(totalBilled)}
                             </TableCell>
                             <TableCell className="text-right font-medium text-emerald-700">
-                              Rs. {totalCollected.toLocaleString()}
+                              {fmt(totalCollected)}
                             </TableCell>
                             <TableCell className="text-right font-medium text-red-600">
-                              Rs. {outstanding.toLocaleString()}
+                              {fmt(outstanding)}
                             </TableCell>
                             <TableCell className="text-right">
                               <Badge
@@ -1012,22 +1058,13 @@ export default function ReportsPage() {
                         {doctorRevenue.reduce((s, d) => s + d.invoiceCount, 0)}
                       </TableCell>
                       <TableCell className="text-right">
-                        Rs.{" "}
-                        {doctorRevenue
-                          .reduce((s, d) => s + d.totalBilled, 0)
-                          .toLocaleString()}
+                        {fmt(doctorRevenue.reduce((s, d) => s + d.totalBilled, 0))}
                       </TableCell>
                       <TableCell className="text-right text-emerald-700">
-                        Rs.{" "}
-                        {doctorRevenue
-                          .reduce((s, d) => s + d.totalCollected, 0)
-                          .toLocaleString()}
+                        {fmt(doctorRevenue.reduce((s, d) => s + d.totalCollected, 0))}
                       </TableCell>
                       <TableCell className="text-right text-red-600">
-                        Rs.{" "}
-                        {doctorRevenue
-                          .reduce((s, d) => s + d.outstanding, 0)
-                          .toLocaleString()}
+                        {fmt(doctorRevenue.reduce((s, d) => s + d.outstanding, 0))}
                       </TableCell>
                       <TableCell />
                     </TableRow>
@@ -1048,7 +1085,7 @@ export default function ReportsPage() {
                 <CardTitle className="text-base">Patient Outstanding Balances</CardTitle>
                 <CardDescription>
                   {patientBalances.length} patient{patientBalances.length !== 1 ? "s" : ""} with
-                  unpaid invoices — Rs. {totalOutstanding.toLocaleString()} total outstanding
+                  unpaid invoices — {fmt(totalOutstanding)} total outstanding
                 </CardDescription>
               </div>
               <Button
@@ -1117,7 +1154,7 @@ export default function ReportsPage() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right font-semibold text-red-600">
-                            Rs. {outstanding.toLocaleString()}
+                            {fmt(outstanding)}
                           </TableCell>
                         </TableRow>
                       )

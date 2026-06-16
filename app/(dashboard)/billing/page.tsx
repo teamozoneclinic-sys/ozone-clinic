@@ -122,7 +122,6 @@ export default function BillingPage() {
     })
   }, [invoices, search, doctorFilter, getPatient])
 
-  const totalRevenue = invoices.reduce((sum, i) => sum + i.paidAmount, 0)
   const totalOutstanding = invoices.reduce((sum, i) => sum + i.balance, 0)
 
   // Today's collection — sum payments collected today
@@ -132,6 +131,19 @@ export default function BillingPage() {
       .filter((p) => p.collectedAt.startsWith(todayStr))
       .reduce((s, p) => s + p.amount, 0)
   }, 0)
+
+  // Monthly revenue — payments collected within the current calendar month.
+  // Replaces the legacy all-time "Total Revenue" KPI; resets on the 1st.
+  const monthPrefix = todayStr.slice(0, 7) // YYYY-MM
+  const monthlyRevenue = invoices.reduce((sum, inv) => {
+    return sum + inv.payments
+      .filter((p) => (p.collectedAt ?? "").startsWith(monthPrefix))
+      .reduce((s, p) => s + p.amount, 0)
+  }, 0)
+  const monthLabel = new Date(todayStr).toLocaleDateString("en-PK", {
+    month: "long",
+    year: "numeric",
+  })
 
   const handleCollect = async (invoiceId: string, amount: number, method: PaymentMethod, reference: string, notes: string) => {
     await collectPayment(invoiceId, {
@@ -186,8 +198,9 @@ export default function BillingPage() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Total Revenue</p>
-                  <p className="text-2xl font-bold text-foreground mt-1">{amountsHidden ? `Rs. ${MASKED}` : `Rs. ${totalRevenue.toLocaleString()}`}</p>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Monthly Revenue</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{amountsHidden ? `Rs. ${MASKED}` : `Rs. ${monthlyRevenue.toLocaleString()}`}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{monthLabel}</p>
                 </div>
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100">
                   <TrendingUp className="h-5 w-5 text-emerald-600" />

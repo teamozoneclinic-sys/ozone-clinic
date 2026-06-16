@@ -159,12 +159,18 @@ export default function AppointmentsPage() {
     deleteAppointment,
     updateAppointment,
     assignDoctor,
+    hasPermission,
   } = useStore()
 
   // For doctor role, lock the filter to their own doctor record
   const isDoctor = currentUser?.role === "doctor"
   const isAdmin = currentUser?.role === "admin"
+  // `canManage` retained for actions that must stay admin/manager-only
+  // (Assign Doctor — API also restricts to admin/manager). Date/Time editing
+  // and Cancel button use matrix permissions instead.
   const canManage = isAdmin || currentUser?.role === "manager"
+  const canEditAppointment = hasPermission("appointments.edit")
+  const canCancelAppointment = hasPermission("appointments.cancel")
 
   const myDoctorId = useMemo(() => {
     if (!isDoctor) return null
@@ -531,6 +537,8 @@ export default function AppointmentsPage() {
               onAssignDoctor={handleAssignDoctor}
               isAdmin={isAdmin}
               canManage={canManage}
+              canEditAppointment={canEditAppointment}
+              canCancelAppointment={canCancelAppointment}
               isBusy={busyAction}
             />
           )}
@@ -555,6 +563,8 @@ function AppointmentDetailContent({
   onAssignDoctor,
   isAdmin,
   canManage,
+  canEditAppointment,
+  canCancelAppointment,
   isBusy,
 }: {
   appointment: Appointment
@@ -569,6 +579,8 @@ function AppointmentDetailContent({
   onAssignDoctor: (doctorId: string) => Promise<void>
   isAdmin: boolean
   canManage: boolean
+  canEditAppointment: boolean
+  canCancelAppointment: boolean
   isBusy: boolean
 }) {
   const patient = getPatient(appointment.patientId)
@@ -836,8 +848,8 @@ function AppointmentDetailContent({
               </div>
             )}
 
-            {/* Modify Date / Time — for admin + manager, scheduled only */}
-            {canManage && isScheduled && (
+            {/* Modify Date / Time — anyone with appointments.edit, scheduled only */}
+            {canEditAppointment && isScheduled && (
               <div>
                 {!showModifyTime ? (
                   <Button
@@ -924,7 +936,7 @@ function AppointmentDetailContent({
                   Mark Completed
                 </Button>
               )}
-              {(isScheduled || isCheckedIn) && (
+              {canCancelAppointment && (isScheduled || isCheckedIn) && (
                 <Button
                   variant="destructive"
                   size="sm"

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import Doctor from "@/lib/models/Doctor"
 import AuditLog from "@/lib/models/AuditLog"
-import { getRequestUser } from "@/lib/auth"
+import { getRequestUser, requirePermission } from "@/lib/auth"
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRequestUser(request)
@@ -16,9 +16,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getRequestUser(request)
-  if (!user || !["admin", "manager"].includes(user.role))
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  // Matrix: doctors.edit is admin-only
+  const gate = await requirePermission(request, "doctors.edit")
+  if ("response" in gate) return gate.response
 
   await connectDB()
   const { id } = await params

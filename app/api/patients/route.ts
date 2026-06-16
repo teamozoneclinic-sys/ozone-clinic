@@ -3,7 +3,7 @@ import { connectDB } from "@/lib/mongodb"
 import Patient from "@/lib/models/Patient"
 import Appointment from "@/lib/models/Appointment"
 import ClinicSettings from "@/lib/models/ClinicSettings"
-import { getRequestUser } from "@/lib/auth"
+import { getRequestUser, requirePermission } from "@/lib/auth"
 import { sendWhatsAppTemplate } from "@/lib/whatsapp"
 
 export async function GET(request: NextRequest) {
@@ -32,8 +32,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getRequestUser(request)
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const gate = await requirePermission(request, "patients.create")
+  if ("response" in gate) return gate.response
 
   await connectDB()
   const body = await request.json()

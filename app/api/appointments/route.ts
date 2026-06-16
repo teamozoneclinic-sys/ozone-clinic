@@ -5,7 +5,7 @@ import Invoice from "@/lib/models/Invoice"
 import Doctor from "@/lib/models/Doctor"
 import Patient from "@/lib/models/Patient"
 import AuditLog from "@/lib/models/AuditLog"
-import { getRequestUser } from "@/lib/auth"
+import { getRequestUser, requirePermission } from "@/lib/auth"
 import { sendWhatsAppTemplate } from "@/lib/whatsapp"
 
 export async function GET(request: NextRequest) {
@@ -14,10 +14,17 @@ export async function GET(request: NextRequest) {
 
   await connectDB()
 
-  let query = {}
-  // Doctors only see their own appointments
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query: any = {}
+  // Doctors see appointments where they were the treating doctor OR for any
+  // patient currently assigned to them (so a re-assigned patient's full
+  // appointment history surfaces under the new doctor too).
   if (user.role === "doctor" && user.doctorId) {
-    query = { doctorId: user.doctorId }
+    const assignedPatientIds = await Patient.find({ assignedDoctorId: user.doctorId }).distinct("_id")
+    const idStrings = assignedPatientIds.map((id) => id.toString())
+    query = idStrings.length > 0
+      ? { $or: [{ doctorId: user.doctorId }, { patientId: { $in: idStrings } }] }
+      : { doctorId: user.doctorId }
   }
 
   const appointments = await Appointment.find(query).sort({ date: -1, time: 1 })
@@ -25,8 +32,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getRequestUser(request)
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const gate = await requirePermission(request, "appointments.create")
+  if ("response" in gate) return gate.response
+  const { user } = gate
 
   await connectDB()
   const body = await request.json()

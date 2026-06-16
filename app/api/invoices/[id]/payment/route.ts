@@ -5,13 +5,14 @@ import Patient from "@/lib/models/Patient"
 import Doctor from "@/lib/models/Doctor"
 import ClinicSettings from "@/lib/models/ClinicSettings"
 import TempFile from "@/lib/models/TempFile"
-import { getRequestUser } from "@/lib/auth"
+import { getRequestUser, requirePermission } from "@/lib/auth"
 import { sendWhatsAppTemplateWithDocument } from "@/lib/whatsapp"
 import { generateReceiptPDF } from "@/lib/generate-receipt-pdf"
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getRequestUser(request)
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const gate = await requirePermission(request, "billing.collect")
+  if ("response" in gate) return gate.response
+  const { user } = gate
 
   await connectDB()
   const { id } = await params

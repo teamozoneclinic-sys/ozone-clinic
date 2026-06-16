@@ -5,7 +5,7 @@ import Invoice from "@/lib/models/Invoice"
 import AuditLog from "@/lib/models/AuditLog"
 import Patient from "@/lib/models/Patient"
 import Doctor from "@/lib/models/Doctor"
-import { getRequestUser } from "@/lib/auth"
+import { getRequestUser, requirePermission } from "@/lib/auth"
 import { sendWhatsAppTemplate } from "@/lib/whatsapp"
 
 function formatTime12h(time: string): string {
@@ -65,12 +65,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getRequestUser(request)
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
   await connectDB()
   const { id } = await params
   const body = await request.json()
+
+  // A cancellation needs appointments.cancel; any other edit needs appointments.edit
+  const requiredPerm = body.status === "cancelled" ? "appointments.cancel" : "appointments.edit"
+  const gate = await requirePermission(request, requiredPerm)
+  if ("response" in gate) return gate.response
+  const { user } = gate
 
   // When cancelling, void any unpaid invoice and write audit logs
   if (body.status === "cancelled") {

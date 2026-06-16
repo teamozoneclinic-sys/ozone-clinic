@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import Doctor from "@/lib/models/Doctor"
 import User from "@/lib/models/User"
-import { getRequestUser } from "@/lib/auth"
+import { getRequestUser, requirePermission } from "@/lib/auth"
 import { CLINIC_EMAIL_DOMAIN, toClinicEmail } from "@/lib/utils"
 
 // Derive email + password from a doctor's name
@@ -26,9 +26,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const user = await getRequestUser(request)
-  if (!user || !["admin", "manager"].includes(user.role))
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  // Matrix: doctors.create is admin-only (manager has doctors.view only)
+  const gate = await requirePermission(request, "doctors.create")
+  if ("response" in gate) return gate.response
 
   try {
     await connectDB()
