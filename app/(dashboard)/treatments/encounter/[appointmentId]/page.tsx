@@ -1,6 +1,6 @@
 "use client"
 
-import { use, useState, useMemo, useRef } from "react"
+import { use, useState, useMemo, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useStore } from "@/lib/store"
 import { PageHeader } from "@/components/page-header"
@@ -38,8 +38,11 @@ import {
   Paperclip,
   Upload,
   CalendarIcon,
+  MessageCircle,
+  Loader2,
+  Download,
 } from "lucide-react"
-import type { Treatment } from "@/lib/types"
+import type { Treatment, PatientDocument } from "@/lib/types"
 import Link from "next/link"
 import { toast } from "sonner"
 
@@ -243,13 +246,34 @@ function EncounterForm({
   const [testSearch, setTestSearch] = useState("")
   const [testCategory, setTestCategory] = useState("all")
 
-  // Attachments state — files picked during the encounter, uploaded on finalize
-  const [stagedAttachments, setStagedAttachments] = useState<StagedAttachment[]>([])
-  const [pickedFile, setPickedFile] = useState<File | null>(null)
-  const [attachmentName, setAttachmentName] = useState("")
+  // Attachments — auto-uploaded immediately to the patient record. In edit
+  // mode they're linked to the existing treatment; in create mode they're
+  // uploaded unlinked and patched with the new treatmentId after finalize.
+  const [uploadedAttachments, setUploadedAttachments] = useState<PatientDocument[]>([])
+  const [uploadingFile, setUploadingFile] = useState(false)
+  // Track which uploads happened in *this session* so we know to link them
+  // when finalize creates a new treatment record.
+  const sessionUploadIds = useRef<Set<string>>(new Set())
+  const [sendingDocId, setSendingDocId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handlePickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Hydrate existing attachments from the patient record (edit mode only —
+  // for a brand-new encounter there's no treatmentId yet to filter on).
+  useEffect(() => {
+    if (!patient?.id || !existingTreatment?.id) return
+    let cancelled = false
+    fetch(`/api/patients/${patient.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => {
+        if (cancelled || !res?.data) return
+        const docs: PatientDocument[] = res.data.documents ?? []
+        setUploadedAttachments(docs.filter((d) => d.treatmentId === existingTreatment.id))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [patient?.id, existingTreatment?.id])
+
+  const handlePickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     e.target.value = "" // reset so re-picking the same file works
     if (!f) return
@@ -257,31 +281,62 @@ function EncounterForm({
       toast.error(`"${f.name}" is too large. Maximum file size is 10 MB.`)
       return
     }
-    setPickedFile(f)
-    setAttachmentName(f.name.replace(/\.[^.]+$/, ""))
-  }
-
-  const handleStageAttachment = () => {
-    if (!pickedFile) return
-    const name = attachmentName.trim()
-    if (!name) {
-      toast.error("Please enter a document name.")
+    if (!patient?.id) {
+      toast.error("Patient record not loaded — try refreshing.")
       return
     }
-    setStagedAttachments((prev) => [
-      ...prev,
-      {
-        id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        name,
-        file: pickedFile,
-      },
-    ])
-    setPickedFile(null)
-    setAttachmentName("")
+
+    setUploadingFile(true)
+    try {
+      const base64 = await fileToBase64(f)
+      const res = await fetch(`/api/patients/${patient.id}/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: f.name,
+          contentType: f.type || "application/octet-stream",
+          data: base64,
+          // In edit mode we already know the treatment id; in create mode
+          // we link the doc to the new treatment after Finalize.
+          treatmentId: existingTreatment?.id ?? "",
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Upload failed (${res.status})`)
+
+      // The API returns the full patient — grab the just-pushed last doc
+      const allDocs: PatientDocument[] = data.data?.documents ?? []
+      const newest = allDocs[allDocs.length - 1]
+      if (newest) {
+        setUploadedAttachments((prev) => [...prev, newest])
+        sessionUploadIds.current.add(newest.id)
+      }
+      toast.success(`"${f.name}" uploaded and saved to patient record.`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed.")
+    } finally {
+      setUploadingFile(false)
+    }
   }
 
-  const removeStagedAttachment = (id: string) =>
-    setStagedAttachments((prev) => prev.filter((a) => a.id !== id))
+  // Send a just-uploaded report to the patient on WhatsApp
+  const handleSendOnWhatsApp = async (docId: string, docName: string) => {
+    if (!patient?.id) return
+    setSendingDocId(docId)
+    try {
+      const res = await fetch(
+        `/api/patients/${patient.id}/documents/${docId}/send-whatsapp`,
+        { method: "POST" }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Send failed (${res.status})`)
+      toast.success(`"${docName}" sent to ${patient.name} on WhatsApp.`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send on WhatsApp.")
+    } finally {
+      setSendingDocId(null)
+    }
+  }
 
   const uniqueCategories = useMemo(
     () => Array.from(new Set(testCatalog.map((t) => t.category))),
@@ -379,39 +434,27 @@ function EncounterForm({
         toast.success("Consultation finalized and treatment record saved.")
       }
 
-      // Upload any staged attachments and link them to this treatment
-      if (stagedAttachments.length > 0) {
-        let okCount = 0
-        let failCount = 0
-        for (const att of stagedAttachments) {
-          try {
-            const base64 = await fileToBase64(att.file)
-            const filename = ensureExtension(att.name, att.file.name)
-            const res = await fetch(`/api/patients/${appointment!.patientId}/documents`, {
-              method: "POST",
+      // In CREATE mode, any docs that were auto-uploaded during this session
+      // were saved without a treatmentId (we didn't have one yet). Patch them
+      // now to link them to the newly-created treatment. In EDIT mode the
+      // upload already included the treatmentId, so nothing to do.
+      if (!isEdit && sessionUploadIds.current.size > 0) {
+        const ids = Array.from(sessionUploadIds.current)
+        const results = await Promise.allSettled(
+          ids.map((docId) =>
+            fetch(`/api/patients/${appointment!.patientId}/documents/${docId}`, {
+              method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                filename,
-                contentType: att.file.type || "application/octet-stream",
-                data: base64,
-                treatmentId,
-              }),
+              body: JSON.stringify({ treatmentId }),
             })
-            if (!res.ok) {
-              const err = await res.json().catch(() => ({}))
-              throw new Error(err.error || `HTTP ${res.status}`)
-            }
-            okCount++
-          } catch (err) {
-            console.error(`Attachment "${att.name}" failed:`, err)
-            failCount++
-          }
-        }
-        if (okCount > 0) {
-          toast.success(`${okCount} attachment${okCount !== 1 ? "s" : ""} saved to patient record.`)
-        }
-        if (failCount > 0) {
-          toast.error(`${failCount} attachment${failCount !== 1 ? "s" : ""} failed to upload.`)
+          )
+        )
+        const failures = results.filter((r) => r.status === "rejected").length
+        if (failures > 0) {
+          console.error(`[Encounter] Failed to link ${failures} attachment(s) to treatment ${treatmentId}`)
+          toast.warning(
+            `${failures} attachment${failures !== 1 ? "s" : ""} couldn't be linked to this treatment — they're still saved to the patient record.`
+          )
         }
       }
 
@@ -862,7 +905,7 @@ function EncounterForm({
                     linked to this consultation.
                   </p>
 
-                  {/* File picker — show input area until a file is picked */}
+                  {/* File picker — files are auto-uploaded the moment they're chosen */}
                   <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
                     <input
                       ref={fileInputRef}
@@ -870,108 +913,77 @@ function EncounterForm({
                       accept=".pdf,.jpg,.jpeg,.png,.gif,.webp,.doc,.docx"
                       className="hidden"
                       onChange={handlePickFile}
+                      disabled={uploadingFile}
                     />
-                    {!pickedFile ? (
-                      <div className="flex flex-col items-center gap-2 py-2">
-                        <FileText className="h-7 w-7 text-muted-foreground opacity-60" />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5"
-                          onClick={() => fileInputRef.current?.click()}
-                        >
+                    <div className="flex flex-col items-center gap-2 py-2">
+                      <FileText className="h-7 w-7 text-muted-foreground opacity-60" />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingFile}
+                      >
+                        {uploadingFile ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
                           <Upload className="h-3.5 w-3.5" />
-                          Choose File
-                        </Button>
-                        <p className="text-xs text-muted-foreground">
-                          PDF, JPG, PNG, DOC / DOCX — up to 10 MB
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2 text-sm">
-                          <FileText className="h-4 w-4 text-primary shrink-0" />
-                          <span className="font-medium truncate">{pickedFile.name}</span>
-                          <span className="text-xs text-muted-foreground shrink-0">
-                            ({Math.round(pickedFile.size / 1024).toLocaleString()} KB)
-                          </span>
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <Label htmlFor="attachment-name" className="text-xs">
-                            Document name
-                          </Label>
-                          <Input
-                            id="attachment-name"
-                            value={attachmentName}
-                            onChange={(e) => setAttachmentName(e.target.value)}
-                            placeholder="e.g. CBC Report"
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault()
-                                handleStageAttachment()
-                              }
-                            }}
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            The original file extension is added automatically.
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          <Button type="button" size="sm" onClick={handleStageAttachment}>
-                            <Plus className="h-3.5 w-3.5 mr-1" />
-                            Add to attachments
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setPickedFile(null)
-                              setAttachmentName("")
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    )}
+                        )}
+                        {uploadingFile ? "Uploading…" : "Choose File"}
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        PDF, JPG, PNG, DOC / DOCX — up to 10 MB. Saves automatically on pick.
+                      </p>
+                    </div>
                   </div>
 
-                  {/* Staged list */}
-                  {stagedAttachments.length > 0 ? (
+                  {/* Uploaded list */}
+                  {uploadedAttachments.length > 0 ? (
                     <div className="flex flex-col gap-1.5">
                       <p className="text-xs font-medium text-muted-foreground">
-                        {stagedAttachments.length} attachment
-                        {stagedAttachments.length !== 1 ? "s" : ""} ready to save
+                        {uploadedAttachments.length} attachment
+                        {uploadedAttachments.length !== 1 ? "s" : ""} saved to patient record
                       </p>
-                      {stagedAttachments.map((att) => (
+                      {uploadedAttachments.map((doc) => (
                         <div
-                          key={att.id}
+                          key={doc.id}
                           className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-3 py-2 text-sm"
                         >
                           <FileText className="h-4 w-4 shrink-0 text-primary/60" />
-                          <span className="flex-1 truncate font-medium">{att.name}</span>
-                          <span className="text-xs text-muted-foreground shrink-0">
-                            {Math.round(att.file.size / 1024).toLocaleString()} KB
-                          </span>
+                          <span className="flex-1 truncate font-medium">{doc.name}</span>
+                          <a
+                            href={doc.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
+                            title="View"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                          </a>
                           <button
                             type="button"
-                            onClick={() => removeStagedAttachment(att.id)}
-                            className="text-muted-foreground hover:text-red-600 transition-colors"
-                            title="Remove"
+                            title={
+                              patient?.phone
+                                ? `Send "${doc.name}" to ${patient.name} on WhatsApp`
+                                : "Patient has no phone on file"
+                            }
+                            disabled={sendingDocId === doc.id || !patient?.phone}
+                            onClick={() => handleSendOnWhatsApp(doc.id, doc.name)}
+                            className="flex h-7 w-7 items-center justify-center rounded text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-40"
                           >
-                            <X className="h-3.5 w-3.5" />
+                            {sendingDocId === doc.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <MessageCircle className="h-3.5 w-3.5" />
+                            )}
                           </button>
                         </div>
                       ))}
-                      <p className="text-xs italic text-muted-foreground">
-                        These will be uploaded when you {isEdit ? "save changes" : "finalize the consultation"}.
-                      </p>
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground italic">
-                      No attachments added yet.
+                      No attachments uploaded yet.
                     </p>
                   )}
                 </CardContent>
