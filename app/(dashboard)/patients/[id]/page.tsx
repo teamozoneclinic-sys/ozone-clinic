@@ -103,8 +103,8 @@ function PatientProfileContent({ patientId }: { patientId: string }) {
   } = useStore()
 
   const isAdmin = currentUser?.role === "admin"
-  // Spec: only admin & manager can reassign a patient's doctor.
-  const canReassignDoctor = currentUser?.role === "admin" || currentUser?.role === "manager"
+  // Spec: admin, manager & receptionist may reassign a patient's doctor.
+  const canReassignDoctor = ["admin", "manager", "receptionist"].includes(currentUser?.role ?? "")
   const [showReassignModal, setShowReassignModal] = useState(false)
 
   const patient = getPatient(patientId)!

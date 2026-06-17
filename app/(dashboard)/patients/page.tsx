@@ -456,8 +456,8 @@ function EditPatientModal({
   onSaved: (data: Partial<Patient>) => void
 }) {
   const { doctors, currentUser } = useStore()
-  // Only admin & manager may reassign the patient's doctor (spec).
-  const canReassignDoctor = currentUser?.role === "admin" || currentUser?.role === "manager"
+  // Admin, manager & receptionist may reassign the patient's doctor (spec).
+  const canReassignDoctor = ["admin", "manager", "receptionist"].includes(currentUser?.role ?? "")
   const [name, setName] = useState(patient.name)
   const [phone, setPhone] = useState(patient.phone)
   const [gender, setGender] = useState<"male" | "female" | "other">(patient.gender)
@@ -619,7 +619,7 @@ function EditPatientModal({
                 Assigned Doctor
                 {!canReassignDoctor && (
                   <span className="ml-1.5 text-xs font-normal text-muted-foreground">
-                    (admin/manager only)
+                    (admin / manager / receptionist only)
                   </span>
                 )}
               </Label>
