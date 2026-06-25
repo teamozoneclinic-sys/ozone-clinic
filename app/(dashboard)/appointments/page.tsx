@@ -66,6 +66,39 @@ function formatHour(hour: number): string {
   return `${hour - 12} PM`
 }
 
+// Status → calendar-button color scheme. Soft tinted background + matching
+// coloured left border + readable text. Same palette as STATUS_LEGEND below
+// so the legend stays in sync.
+function getStatusStyle(status: Appointment["status"]) {
+  switch (status) {
+    case "scheduled":
+      return "bg-blue-50 border-l-4 border-l-blue-500 text-blue-900 hover:bg-blue-100"
+    case "checked-in":
+      return "bg-amber-50 border-l-4 border-l-amber-500 text-amber-900 hover:bg-amber-100"
+    case "in-progress":
+      return "bg-teal-50 border-l-4 border-l-teal-500 text-teal-900 hover:bg-teal-100"
+    case "completed":
+      return "bg-emerald-50 border-l-4 border-l-emerald-500 text-emerald-900 hover:bg-emerald-100"
+    case "cancelled":
+      return "bg-red-50 border-l-4 border-l-red-500 text-red-900 hover:bg-red-100"
+    case "no-show":
+      return "bg-gray-100 border-l-4 border-l-gray-400 text-gray-700 hover:bg-gray-200"
+    default:
+      return "bg-primary/10 border-l-4 border-l-primary text-foreground hover:bg-primary/20"
+  }
+}
+
+// Legend rows — single source of truth for the swatch + label shown above
+// the calendar. Keep the dot colours in sync with getStatusStyle().
+const STATUS_LEGEND: { status: Appointment["status"]; label: string; dot: string }[] = [
+  { status: "scheduled",   label: "Scheduled",   dot: "bg-blue-500" },
+  { status: "checked-in",  label: "Checked In",  dot: "bg-amber-500" },
+  { status: "in-progress", label: "In Progress", dot: "bg-teal-500" },
+  { status: "completed",   label: "Completed",   dot: "bg-emerald-500" },
+  { status: "cancelled",   label: "Cancelled",   dot: "bg-red-500" },
+  { status: "no-show",     label: "No Show",     dot: "bg-gray-400" },
+]
+
 // "17:00" → "5:00 PM"
 function formatTime12h(hhmm: string): string {
   const [h, m] = hhmm.split(":").map(Number)
@@ -365,6 +398,19 @@ export default function AppointmentsPage() {
         </CardContent>
       </Card>
 
+      {/* Status legend — mirrors getStatusStyle() colours */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-border/60 bg-card px-3 py-2">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          Legend
+        </span>
+        {STATUS_LEGEND.map((s) => (
+          <span key={s.status} className="flex items-center gap-1.5 text-xs text-foreground">
+            <span className={`h-2.5 w-2.5 rounded-full ${s.dot}`} />
+            {s.label}
+          </span>
+        ))}
+      </div>
+
       {/* Calendar Views */}
       {view === "day" && (
         <Card>
@@ -387,11 +433,11 @@ export default function AppointmentsPage() {
                           <button
                             key={apt.id}
                             onClick={() => setSelectedAppointmentId(apt.id)}
-                            className="flex flex-col rounded-lg bg-primary/10 p-2 text-left transition-colors hover:bg-primary/20 w-full sm:w-auto sm:min-w-[200px]"
+                            className={`flex flex-col rounded-lg p-2 text-left transition-colors w-full sm:w-auto sm:min-w-[200px] ${getStatusStyle(apt.status)}`}
                           >
-                            <span className="text-sm font-medium text-foreground">{patient?.name}</span>
-                            <span className="text-xs text-muted-foreground">
-                              {apt.time} - {doctor?.name ?? "Unassigned"}
+                            <span className="text-sm font-medium">{patient?.name}</span>
+                            <span className="text-xs opacity-80">
+                              {formatTime12h(apt.time)} - {doctor?.name ?? "Unassigned"}
                             </span>
                             <div className="mt-1">
                               <StatusBadge status={apt.status} />
@@ -443,10 +489,10 @@ export default function AppointmentsPage() {
                             <button
                               key={apt.id}
                               onClick={() => setSelectedAppointmentId(apt.id)}
-                              className="flex flex-col rounded-md bg-primary/10 p-1.5 text-left text-xs transition-colors hover:bg-primary/20"
+                              className={`flex flex-col rounded-md p-1.5 text-left text-xs transition-colors ${getStatusStyle(apt.status)}`}
                             >
-                              <span className="font-medium text-foreground truncate">{patient?.name}</span>
-                              <span className="text-muted-foreground">{apt.time}</span>
+                              <span className="font-medium truncate">{patient?.name}</span>
+                              <span className="opacity-80">{formatTime12h(apt.time)}</span>
                             </button>
                           )
                         })}
@@ -500,7 +546,7 @@ export default function AppointmentsPage() {
                               <button
                                 key={apt.id}
                                 onClick={() => setSelectedAppointmentId(apt.id)}
-                                className="rounded bg-primary/10 px-1 py-0.5 text-left text-[10px] font-medium text-foreground truncate hover:bg-primary/20"
+                                className={`rounded px-1 py-0.5 text-left text-[10px] font-medium truncate ${getStatusStyle(apt.status)}`}
                               >
                                 {apt.time} {patient?.name?.split(" ")[0]}
                               </button>
