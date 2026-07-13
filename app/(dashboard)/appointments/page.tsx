@@ -831,12 +831,15 @@ function AppointmentDetailContent({
         )}
 
         {/* ── Actions ── */}
-        {isActive && (
+        {/* Wrapper opens for any non-completed appointment so cancelled/no-show
+            entries can still surface the admin-only Delete action. Each inner
+            button retains its own status gate. */}
+        {(isActive || isCancelled || isNoShow) && (
           <>
             <Separator />
 
-            {/* Assign Doctor — when the appointment was booked without one */}
-            {canManage && !appointment.doctorId && (
+            {/* Assign Doctor — active appointments only (no point on a cancelled one) */}
+            {canManage && !appointment.doctorId && isActive && (
               <div>
                 {!showAssignDoctor ? (
                   <Button

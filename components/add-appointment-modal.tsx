@@ -694,6 +694,7 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="consultation">Consultation</SelectItem>
+                      <SelectItem value="online-consultation">Online Consultation</SelectItem>
                       <SelectItem value="follow-up">Follow-up</SelectItem>
                       <SelectItem value="treatment">Treatment</SelectItem>
                       <SelectItem value="annual-checkup">Annual Check-up</SelectItem>
