@@ -32,8 +32,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     collectedAt: new Date().toISOString(),
   }
 
-  const newPaid = invoice.paidAmount + body.amount
+  const priorPaid = invoice.paidAmount
+  const priorBalance = Math.max(0, invoice.totalAmount - priorPaid)
+  const newPaid = priorPaid + body.amount
   const newBalance = Math.max(0, invoice.totalAmount - newPaid)
+  // Detect overpayment — anything collected beyond the invoice total is a
+  // debt to the patient, tracked via `refundDue` and surfaced in the
+  // Refunds tab. Client-side normally prevents this but the API must be
+  // defensive against direct calls / race conditions.
+  const overpayment = Math.max(0, newPaid - invoice.totalAmount)
   const newStatus =
     newBalance <= 0 ? "paid" : newPaid > 0 ? "partially-paid" : "unpaid"
 
@@ -41,7 +48,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   invoice.paidAmount = newPaid
   invoice.balance = newBalance
   invoice.status = newStatus as "paid" | "partially-paid" | "unpaid"
+  if (overpayment > 0) {
+    invoice.refundDue = (invoice.refundDue ?? 0) + overpayment
+  }
   await invoice.save()
+
+  // Audit the overpayment so admin can see how it arose
+  if (overpayment > 0) {
+    try {
+      const AuditLog = (await import("@/lib/models/AuditLog")).default
+      await AuditLog.create({
+        userId: user.id,
+        userName: user.name,
+        userRole: user.role,
+        action: "Overpayment Detected",
+        entity: "Invoice",
+        entityId: id,
+        details:
+          `Overpayment of Rs. ${overpayment} on invoice #${id} — collected Rs. ${body.amount} against a remaining balance of Rs. ${priorBalance}. Added to refund-due.`,
+        timestamp: new Date().toISOString(),
+      })
+    } catch {
+      // Audit failure must not undo the payment
+    }
+  }
 
   // Auto-send WhatsApp receipt with PDF — non-blocking
   const origin = new URL(request.url).origin

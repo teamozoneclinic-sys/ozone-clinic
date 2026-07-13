@@ -48,6 +48,8 @@ import {
   CreditCard,
   Banknote,
   Ban,
+  Undo2,
+  Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Invoice, PaymentMethod } from "@/lib/types"
@@ -63,7 +65,8 @@ const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
 ]
 
 export default function BillingPage() {
-  const { invoices, getPatient, getDoctor, doctors, currentUser, collectPayment, hasPermission } = useStore()
+  const { invoices, getPatient, getDoctor, doctors, currentUser, collectPayment, hasPermission, markInvoiceRefunded } = useStore()
+  const [refundingInvoice, setRefundingInvoice] = useState<Invoice | null>(null)
   const router = useRouter()
   const [search, setSearch] = useState("")
   const [doctorFilter, setDoctorFilter] = useState("all")
@@ -82,6 +85,7 @@ export default function BillingPage() {
   const [collectingInvoice, setCollectingInvoice] = useState<Invoice | null>(null)
 
   const canCollect = hasPermission("billing.collect")
+  const canRefund = hasPermission("billing.void")
 
   const unpaidInvoices = useMemo(() => {
     return invoices.filter((i) => {
@@ -121,6 +125,28 @@ export default function BillingPage() {
       return isVoided && matchSearch && matchDoctor
     })
   }, [invoices, search, doctorFilter, getPatient])
+
+  // Refunds — invoices where money was already collected but the invoice was
+  // later voided (or edited down), so we owe the patient money. Once physically
+  // paid out, refundedAt is set and the row leaves this list.
+  const pendingRefundInvoices = useMemo(() => {
+    return invoices.filter((i) => {
+      const owes = (i.refundDue ?? 0) > 0
+      if (!owes) return false
+      const patient = getPatient(i.patientId)
+      const matchSearch =
+        search === "" ||
+        patient?.name.toLowerCase().includes(search.toLowerCase()) ||
+        i.id.toLowerCase().includes(search.toLowerCase())
+      const matchDoctor = doctorFilter === "all" || i.doctorId === doctorFilter
+      return matchSearch && matchDoctor
+    })
+  }, [invoices, search, doctorFilter, getPatient])
+
+  const totalPendingRefund = pendingRefundInvoices.reduce(
+    (sum, i) => sum + (i.refundDue ?? 0),
+    0
+  )
 
   // Voided invoices are excluded from BOTH outstanding and revenue. Their
   // balance is forced to 0 server-side already, but the filter is kept as a
@@ -301,6 +327,10 @@ export default function BillingPage() {
             <Ban className="h-3.5 w-3.5" />
             Cancelled ({voidedInvoices.length})
           </TabsTrigger>
+          <TabsTrigger value="refunds" className="gap-1.5">
+            <Undo2 className="h-3.5 w-3.5" />
+            Refunds ({pendingRefundInvoices.length})
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="outstanding">
@@ -334,6 +364,18 @@ export default function BillingPage() {
             getDoctor={getDoctor}
           />
         </TabsContent>
+
+        <TabsContent value="refunds">
+          <RefundsTable
+            invoices={pendingRefundInvoices}
+            getPatient={getPatient}
+            getDoctor={getDoctor}
+            totalPending={totalPendingRefund}
+            amountsHidden={amountsHidden}
+            canRefund={canRefund}
+            onMarkRefunded={setRefundingInvoice}
+          />
+        </TabsContent>
       </Tabs>
 
       {/* ── Collect Payment Modal ── */}
@@ -345,6 +387,22 @@ export default function BillingPage() {
           getPatient={getPatient}
           onConfirm={handleCollect}
           onClose={() => setCollectingInvoice(null)}
+        />
+      )}
+
+      {/* ── Mark Refunded Modal ── */}
+      {refundingInvoice && (
+        <MarkRefundedModal
+          invoice={refundingInvoice}
+          patientName={getPatient(refundingInvoice.patientId)?.name ?? "Unknown"}
+          onClose={() => setRefundingInvoice(null)}
+          onConfirm={async (notes, reference) => {
+            await markInvoiceRefunded(refundingInvoice.id, notes, reference)
+            toast.success(
+              `Refund of Rs. ${(refundingInvoice.refundDue ?? 0).toLocaleString()} marked as paid out.`
+            )
+            setRefundingInvoice(null)
+          }}
         />
       )}
     </>
@@ -556,6 +614,264 @@ function VoidedInvoiceTable({
         </Table>
       </CardContent>
     </Card>
+  )
+}
+
+// ─── Refunds Table ──────────────────────────────────────────────────────────
+
+function RefundsTable({
+  invoices,
+  getPatient,
+  getDoctor,
+  totalPending,
+  amountsHidden,
+  canRefund,
+  onMarkRefunded,
+}: {
+  invoices: Invoice[]
+  getPatient: ReturnType<typeof useStore>["getPatient"]
+  getDoctor: ReturnType<typeof useStore>["getDoctor"]
+  totalPending: number
+  amountsHidden: boolean
+  canRefund: boolean
+  onMarkRefunded: (invoice: Invoice) => void
+}) {
+  return (
+    <Card>
+      {/* Pending total banner */}
+      {invoices.length > 0 && (
+        <div className="flex items-center justify-between border-b border-border/60 bg-amber-50/60 px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100">
+              <Undo2 className="h-4 w-4 text-amber-700" />
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-amber-800">
+                Refunds Pending Payout
+              </p>
+              <p className="text-lg font-bold text-amber-900">
+                {amountsHidden ? `Rs. ${MASKED}` : `Rs. ${totalPending.toLocaleString()}`}{" "}
+                <span className="text-sm font-normal text-amber-700">
+                  across {invoices.length} invoice{invoices.length !== 1 ? "s" : ""}
+                </span>
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/40">
+              <TableHead className="w-[100px]">Invoice</TableHead>
+              <TableHead>Patient</TableHead>
+              <TableHead className="hidden md:table-cell">Doctor</TableHead>
+              <TableHead className="hidden lg:table-cell">Void Reason</TableHead>
+              <TableHead className="hidden lg:table-cell">Voided On</TableHead>
+              <TableHead className="text-right">Refund Amount</TableHead>
+              {canRefund && <TableHead className="w-[130px] text-center">Action</TableHead>}
+              <TableHead className="w-8"><span className="sr-only">View</span></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {invoices.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={canRefund ? 8 : 7} className="h-32 text-center">
+                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                    <Undo2 className="h-8 w-8 opacity-40" />
+                    <p className="text-sm">No refunds pending.</p>
+                    <p className="text-xs">
+                      When a paid invoice is voided or edited down, the refund owed to the patient appears here.
+                    </p>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              invoices.map((inv) => {
+                const patient = getPatient(inv.patientId)
+                const doctor = getDoctor(inv.doctorId)
+                const owed = inv.refundDue ?? 0
+                return (
+                  <TableRow key={inv.id} className="hover:bg-accent/40 transition-colors">
+                    <TableCell>
+                      <Link
+                        href={`/billing/${inv.id}`}
+                        className="font-medium font-mono text-xs hover:text-primary transition-colors"
+                      >
+                        #{inv.id}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <Link
+                        href={`/patients/${inv.patientId}`}
+                        className="flex items-center gap-2.5 group"
+                      >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                          {patient?.name?.charAt(0) ?? "?"}
+                        </div>
+                        <span className="font-medium group-hover:text-primary transition-colors">
+                          {patient?.name ?? "Unknown"}
+                        </span>
+                      </Link>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-muted-foreground text-sm">
+                      {doctor?.name ?? "-"}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell text-sm text-muted-foreground max-w-[220px] truncate">
+                      {inv.voidedReason || "—"}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell text-muted-foreground text-xs">
+                      {inv.updatedAt}
+                    </TableCell>
+                    <TableCell className="text-right font-bold text-amber-800">
+                      {amountsHidden ? `Rs. ${MASKED}` : `Rs. ${owed.toLocaleString()}`}
+                    </TableCell>
+                    {canRefund && (
+                      <TableCell className="text-center">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1 border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+                          onClick={() => onMarkRefunded(inv)}
+                        >
+                          <CheckCircle2 className="h-3 w-3" />
+                          Mark Refunded
+                        </Button>
+                      </TableCell>
+                    )}
+                    <TableCell>
+                      <Link href={`/billing/${inv.id}`}>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground hover:text-primary transition-colors" />
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Mark-Refunded Modal ────────────────────────────────────────────────────
+
+function MarkRefundedModal({
+  invoice,
+  patientName,
+  onClose,
+  onConfirm,
+}: {
+  invoice: Invoice
+  patientName: string
+  onClose: () => void
+  onConfirm: (notes: string, reference: string) => Promise<void>
+}) {
+  const [notes, setNotes] = useState("")
+  const [reference, setReference] = useState("")
+  const [submitting, setSubmitting] = useState(false)
+  const owed = invoice.refundDue ?? 0
+
+  const handleSubmit = async () => {
+    setSubmitting(true)
+    try {
+      await onConfirm(notes.trim(), reference.trim())
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to mark as refunded.")
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v && !submitting) onClose() }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Undo2 className="h-5 w-5 text-amber-600" />
+            Mark Refund as Paid Out
+          </DialogTitle>
+          <DialogDescription>
+            Confirm that this refund has been physically handed back to the patient.
+            This clears the outstanding obligation on the clinic and writes an audit log entry.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4 py-2">
+          {/* Summary */}
+          <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Patient</span>
+              <span className="font-medium">{patientName}</span>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between">
+              <span className="text-muted-foreground">Invoice</span>
+              <span className="font-mono text-xs">#{invoice.id}</span>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between border-t border-border/60 pt-1.5">
+              <span className="text-muted-foreground">Amount to refund</span>
+              <span className="text-lg font-bold text-amber-800">
+                Rs. {owed.toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="refund-reference" className="text-sm font-medium">
+              Reference / Method{" "}
+              <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <Input
+              id="refund-reference"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="e.g. Cash handed at counter, TX #12345, Bank transfer ABC…"
+              maxLength={120}
+              disabled={submitting}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="refund-notes" className="text-sm font-medium">
+              Notes{" "}
+              <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <Textarea
+              id="refund-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any additional detail about how the refund was processed…"
+              rows={2}
+              maxLength={500}
+              disabled={submitting}
+              className="resize-none"
+            />
+            <p className="text-[11px] text-muted-foreground text-right">
+              {notes.length}/500
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-border pt-3">
+          <Button variant="outline" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="gap-1.5 bg-amber-600 hover:bg-amber-700 text-white"
+          >
+            {submitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+            {submitting ? "Marking…" : "Confirm Refund Paid"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

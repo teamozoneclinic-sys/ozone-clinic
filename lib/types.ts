@@ -122,8 +122,14 @@ export interface Invoice {
   totalAmount: number
   paidAmount: number
   balance: number
-  /** Amount owed back to the patient when a paid invoice is edited down below what was paid. */
+  /** Amount owed back to the patient when a paid invoice is voided or edited down below what was paid. */
   refundDue?: number
+  /** Set once the refund has been physically paid out to the patient. */
+  refundedAt?: string
+  refundedBy?: string
+  refundedAmount?: number
+  refundedNotes?: string
+  refundedReference?: string
   status: InvoiceStatus
   voidedReason?: string
   payments: Payment[]

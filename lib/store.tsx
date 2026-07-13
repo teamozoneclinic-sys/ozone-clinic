@@ -89,6 +89,7 @@ interface StoreState {
     lineItems: { id?: string; description: string; amount: number; quantity: number; category?: string }[]
   ) => Promise<Invoice>
   voidInvoice: (invoiceId: string, reason: string) => Promise<Invoice>
+  markInvoiceRefunded: (invoiceId: string, notes?: string, reference?: string) => Promise<Invoice>
   createTreatment: (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">) => Promise<Treatment>
   updateTreatment: (id: string, data: Partial<Omit<Treatment, "id" | "createdAt" | "updatedAt">> & { customProcedures?: { name: string; amount: number }[]; newTestIds?: string[] }) => Promise<{ treatment: Treatment; invoice: Invoice | null }>
   updateAppointmentStatus: (appointmentId: string, status: Appointment["status"]) => Promise<void>
@@ -376,6 +377,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     []
   )
 
+  // Mark a refund as paid out to the patient — clears refundDue and stamps
+  // refundedBy / refundedAt for the audit trail. Same permission tier as
+  // voidInvoice (billing.void), enforced server-side.
+  const markInvoiceRefunded = useCallback(
+    async (invoiceId: string, notes?: string, reference?: string): Promise<Invoice> => {
+      const res = await apiFetch<{ data: Invoice }>(
+        `/api/invoices/${invoiceId}/mark-refunded`,
+        {
+          method: "POST",
+          body: JSON.stringify({ notes: notes ?? "", reference: reference ?? "" }),
+        }
+      )
+      setInvoices((prev) => prev.map((inv) => (inv.id === invoiceId ? res.data : inv)))
+      return res.data
+    },
+    []
+  )
+
   const createTreatment = useCallback(
     async (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">): Promise<Treatment> => {
       const res = await apiFetch<{ data: Treatment; invoice: Invoice | null }>("/api/treatments", {
@@ -650,6 +669,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         collectPayment,
         editInvoice,
         voidInvoice,
+        markInvoiceRefunded,
         createTreatment,
         updateTreatment,
         updateAppointmentStatus,

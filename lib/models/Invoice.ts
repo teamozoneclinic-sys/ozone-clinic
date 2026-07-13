@@ -16,6 +16,11 @@ export interface IInvoice extends Document {
   paidAmount: number
   balance: number
   refundDue: number
+  refundedAt?: string
+  refundedBy?: string
+  refundedAmount?: number
+  refundedNotes?: string
+  refundedReference?: string
   status: "unpaid" | "partially-paid" | "paid" | "voided"
   voidedReason?: string
   payments: {
@@ -50,6 +55,11 @@ const InvoiceSchema = new Schema<IInvoice>(
     paidAmount: { type: Number, default: 0 },
     balance: { type: Number, default: 0 },
     refundDue: { type: Number, default: 0 },
+    refundedAt: { type: String, default: "" },
+    refundedBy: { type: String, default: "" },
+    refundedAmount: { type: Number, default: 0 },
+    refundedNotes: { type: String, default: "" },
+    refundedReference: { type: String, default: "" },
     status: {
       type: String,
       enum: ["unpaid", "partially-paid", "paid", "voided"],

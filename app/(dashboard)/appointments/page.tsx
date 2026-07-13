@@ -654,7 +654,16 @@ function AppointmentDetailContent({
   const isScheduled = appointment.status === "scheduled"
   const isCheckedIn = appointment.status === "checked-in"
   const isInProgress = appointment.status === "in-progress"
+  const isCancelled = appointment.status === "cancelled"
+  const isNoShow = appointment.status === "no-show"
   const isActive = isScheduled || isCheckedIn || isInProgress
+  // Admin may hard-delete anything that isn't actively in the treatment
+  // pipeline OR already linked to a completed treatment record:
+  //   - scheduled / cancelled / no-show → safe to purge
+  //   - checked-in / in-progress        → patient is physically here
+  //   - completed                       → has a Treatment record; deleting
+  //     would orphan clinical data
+  const isDeletable = isScheduled || isCancelled || isNoShow
 
   return (
     <>
@@ -995,8 +1004,8 @@ function AppointmentDetailContent({
                 </Button>
               )}
 
-              {/* Delete — admin only, scheduled only */}
-              {isAdmin && isScheduled && (
+              {/* Delete — admin only, scheduled / cancelled / no-show */}
+              {isAdmin && isDeletable && (
                 <Button
                   variant="outline"
                   size="sm"

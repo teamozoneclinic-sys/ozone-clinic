@@ -75,15 +75,23 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   if ("response" in gate) return gate.response
   const { user } = gate
 
-  // When cancelling, void any unpaid invoice and write audit logs
+  // When cancelling, void the linked invoice (paid or unpaid). For paid
+  // invoices, capture the collected amount as `refundDue` so the front desk
+  // sees an owed-refund row in the Refunds tab.
   if (body.status === "cancelled") {
     const existing = await Appointment.findById(id)
     if (existing && existing.invoiceId) {
       const invoice = await Invoice.findById(existing.invoiceId)
-      if (invoice && invoice.status !== "paid") {
+      if (invoice && invoice.status !== "voided") {
+        const wasPaid = invoice.paidAmount > 0
+        const priorPaid = invoice.paidAmount
+
         invoice.status = "voided"
         invoice.balance = 0
         invoice.voidedReason = "Appointment cancelled"
+        if (wasPaid) {
+          invoice.refundDue = (invoice.refundDue ?? 0) + priorPaid
+        }
         await invoice.save()
 
         await AuditLog.create({
@@ -93,7 +101,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
           action: "Invoice Voided",
           entity: "Invoice",
           entityId: invoice._id.toString(),
-          details: `Invoice #${invoice._id} voided automatically — appointment cancelled.`,
+          details:
+            `Invoice #${invoice._id} voided automatically — appointment cancelled.` +
+            (wasPaid ? ` Refund owed to patient: Rs. ${priorPaid}.` : ""),
           timestamp: new Date().toISOString(),
         })
       }
