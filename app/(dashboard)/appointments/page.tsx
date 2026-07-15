@@ -203,7 +203,6 @@ export default function AppointmentsPage() {
   // and Cancel button use matrix permissions instead.
   const canManage = isAdmin || currentUser?.role === "manager"
   const canEditAppointment = hasPermission("appointments.edit")
-  const canCancelAppointment = hasPermission("appointments.cancel")
 
   const myDoctorId = useMemo(() => {
     if (!isDoctor) return null
@@ -242,15 +241,28 @@ export default function AppointmentsPage() {
     }
   }
 
-  const handleComplete = async () => {
-    if (!selectedAppointmentId) return
+  // Generic status change from the dropdown in the details panel.
+  // Cancelled appointments are locked — this is enforced both in the UI
+  // (dropdown hidden) and here as a defensive backstop.
+  const handleUpdateStatus = async (nextStatus: Appointment["status"]) => {
+    if (!selectedAppointmentId || !selectedAppointment) return
+    if (selectedAppointment.status === "cancelled") {
+      toast.error("Cancelled appointments cannot be reactivated.")
+      return
+    }
+    if (nextStatus === selectedAppointment.status) return
+    // Route through the existing cancel handler so the invoice-voiding +
+    // WhatsApp-cancellation-notification side effects fire correctly.
+    if (nextStatus === "cancelled") {
+      return handleCancel()
+    }
     setBusyAction(true)
     try {
-      await updateAppointmentStatus(selectedAppointmentId, "completed")
-      toast.success("Appointment marked as completed.")
-      closeSheet()
+      await updateAppointmentStatus(selectedAppointmentId, nextStatus)
+      const label = nextStatus.replace(/-/g, " ")
+      toast.success(`Status changed to ${label.charAt(0).toUpperCase()}${label.slice(1)}.`)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update.")
+      toast.error(err instanceof Error ? err.message : "Failed to update status.")
     } finally {
       setBusyAction(false)
     }
@@ -576,15 +588,13 @@ export default function AppointmentsPage() {
               getPatient={getPatient}
               getDoctor={getDoctor}
               getInvoice={getInvoice}
-              onCancel={handleCancel}
-              onComplete={handleComplete}
               onDelete={handleDelete}
               onUpdateTime={handleUpdateTime}
               onAssignDoctor={handleAssignDoctor}
+              onUpdateStatus={handleUpdateStatus}
               isAdmin={isAdmin}
               canManage={canManage}
               canEditAppointment={canEditAppointment}
-              canCancelAppointment={canCancelAppointment}
               isBusy={busyAction}
             />
           )}
@@ -602,15 +612,13 @@ function AppointmentDetailContent({
   getPatient,
   getDoctor,
   getInvoice,
-  onCancel,
-  onComplete,
   onDelete,
   onUpdateTime,
   onAssignDoctor,
+  onUpdateStatus,
   isAdmin,
   canManage,
   canEditAppointment,
-  canCancelAppointment,
   isBusy,
 }: {
   appointment: Appointment
@@ -618,15 +626,13 @@ function AppointmentDetailContent({
   getPatient: (id: string) => ReturnType<ReturnType<typeof useStore>["getPatient"]>
   getDoctor: (id: string) => ReturnType<ReturnType<typeof useStore>["getDoctor"]>
   getInvoice: (id: string) => ReturnType<ReturnType<typeof useStore>["getInvoice"]>
-  onCancel: () => Promise<void>
-  onComplete: () => Promise<void>
   onDelete: (reason: string) => Promise<void>
   onUpdateTime: (date: string, time: string, duration: number) => Promise<void>
   onAssignDoctor: (doctorId: string) => Promise<void>
+  onUpdateStatus: (nextStatus: Appointment["status"]) => Promise<void>
   isAdmin: boolean
   canManage: boolean
   canEditAppointment: boolean
-  canCancelAppointment: boolean
   isBusy: boolean
 }) {
   const patient = getPatient(appointment.patientId)
@@ -675,9 +681,35 @@ function AppointmentDetailContent({
       </SheetHeader>
 
       <div className="mt-6 flex flex-col gap-4">
-        {/* Status + type */}
+        {/* Status + type — status is a dropdown (any user can change)
+            EXCEPT for cancelled appointments which are locked. */}
         <div className="flex items-center gap-2 flex-wrap">
-          <StatusBadge status={appointment.status} />
+          {isCancelled ? (
+            <StatusBadge status={appointment.status} />
+          ) : (
+            <Select
+              value={appointment.status}
+              onValueChange={(v) => onUpdateStatus(v as Appointment["status"])}
+              disabled={isBusy}
+            >
+              <SelectTrigger
+                className={`h-8 w-auto min-w-[150px] gap-2 rounded-full border-none px-3 py-0 text-xs font-semibold shadow-none focus:ring-2 focus:ring-offset-0 ${getStatusStyle(appointment.status).replace(/border-l-4 border-l-\S+/, "").trim()}`}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(["scheduled", "checked-in", "in-progress", "completed", "no-show", "cancelled"] as const).map((s) => (
+                  <SelectItem key={s} value={s} className="capitalize text-xs">
+                    <span className="inline-flex items-center gap-2">
+                      <span className={`h-2 w-2 rounded-full ${STATUS_LEGEND.find((l) => l.status === s)?.dot ?? "bg-gray-400"}`} />
+                      {s.replace(/-/g, " ")}
+                      {s === "cancelled" && <span className="text-[10px] text-muted-foreground">(cannot be undone)</span>}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Badge variant="outline" className="capitalize">
             {appointment.type.replace(/-/g, " ")}
           </Badge>
@@ -986,27 +1018,10 @@ function AppointmentDetailContent({
               </div>
             )}
 
-            {/* Status actions */}
+            {/* Status actions — Mark Completed / Cancel are now handled by
+                the status dropdown at the top of the details panel. Only
+                admin-only permanent delete remains here. */}
             <div className="flex flex-col gap-2">
-              {(isCheckedIn || isInProgress) && (
-                <Button variant="outline" size="sm" className="gap-1.5" disabled={isBusy} onClick={onComplete}>
-                  {isBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Mark Completed
-                </Button>
-              )}
-              {canCancelAppointment && (isScheduled || isCheckedIn) && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="gap-1.5"
-                  disabled={isBusy}
-                  onClick={onCancel}
-                >
-                  {isBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                  Cancel Appointment
-                </Button>
-              )}
-
               {/* Delete — admin only, scheduled / cancelled / no-show */}
               {isAdmin && isDeletable && (
                 <Button

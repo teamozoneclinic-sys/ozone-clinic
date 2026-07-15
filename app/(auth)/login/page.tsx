@@ -79,7 +79,7 @@ export default function LoginPage() {
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@clinic.com"
+                placeholder=""
                 className="h-10"
                 disabled={loading}
               />

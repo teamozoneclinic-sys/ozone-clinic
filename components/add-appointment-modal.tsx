@@ -32,6 +32,7 @@ import {
 } from "lucide-react"
 import type { Appointment, TestCatalogItem } from "@/lib/types"
 import { getPKTDateString } from "@/lib/pkt"
+import { AddPatientModal } from "@/components/add-patient-modal"
 
 interface ProcedureEntry {
   name: string
@@ -448,6 +449,9 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
   const [discountDesc, setDiscountDesc] = useState("")
   const [discountAmount, setDiscountAmount] = useState("")
   const [saving, setSaving] = useState(false)
+  // Nested "Add New Patient" flyout — opens inline so the user doesn't lose
+  // the appointment form state they've already filled in.
+  const [showAddPatient, setShowAddPatient] = useState(false)
 
   // Discounts may only be applied by admin & manager (billing.discount permission)
   const canDiscount = hasPermission("billing.discount")
@@ -533,6 +537,7 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v) }}>
       <DialogContent
         showCloseButton={false}
@@ -625,6 +630,7 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
             <div className="px-3 py-2.5 border-t border-border shrink-0">
               <button
                 type="button"
+                onClick={() => setShowAddPatient(true)}
                 className="flex items-center gap-1.5 text-xs text-primary hover:underline font-medium"
               >
                 <UserPlus className="h-3.5 w-3.5" />
@@ -907,5 +913,11 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* Nested Add-Patient modal — opens inline so the appointment form
+        stays populated. After the patient is added the store's `patients`
+        array updates automatically; user finds them via the search box. */}
+    <AddPatientModal open={showAddPatient} onOpenChange={setShowAddPatient} />
+    </>
   )
 }
