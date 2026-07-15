@@ -702,10 +702,10 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                       <SelectItem value="consultation">Consultation</SelectItem>
                       <SelectItem value="online-consultation">Online Consultation</SelectItem>
                       <SelectItem value="follow-up">Follow-up</SelectItem>
-                      <SelectItem value="treatment">Treatment</SelectItem>
-                      <SelectItem value="annual-checkup">Annual Check-up</SelectItem>
-                      <SelectItem value="post-surgery">Post-Surgery</SelectItem>
-                      <SelectItem value="ecg-review">ECG Review</SelectItem>
+                      <SelectItem value="scan">Scan</SelectItem>
+                      <SelectItem value="procedure">Procedure</SelectItem>
+                      <SelectItem value="post-procedure">Post-Procedure</SelectItem>
+                      <SelectItem value="patient-reports">Patient Reports</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
