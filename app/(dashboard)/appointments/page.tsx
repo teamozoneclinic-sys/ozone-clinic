@@ -74,9 +74,9 @@ function getStatusStyle(status: Appointment["status"]) {
     case "scheduled":
       return "bg-blue-50 border-l-4 border-l-blue-500 text-blue-900 hover:bg-blue-100"
     case "checked-in":
-      return "bg-amber-50 border-l-4 border-l-amber-500 text-amber-900 hover:bg-amber-100"
+      return "bg-purple-50 border-l-4 border-l-purple-500 text-purple-900 hover:bg-purple-100"
     case "in-progress":
-      return "bg-violet-50 border-l-4 border-l-violet-500 text-violet-900 hover:bg-violet-100"
+      return "bg-orange-50 border-l-4 border-l-orange-500 text-orange-900 hover:bg-orange-100"
     case "completed":
       return "bg-emerald-50 border-l-4 border-l-emerald-500 text-emerald-900 hover:bg-emerald-100"
     case "cancelled":
@@ -92,8 +92,8 @@ function getStatusStyle(status: Appointment["status"]) {
 // the calendar. Keep the dot colours in sync with getStatusStyle().
 const STATUS_LEGEND: { status: Appointment["status"]; label: string; dot: string }[] = [
   { status: "scheduled",   label: "Scheduled",   dot: "bg-blue-500" },
-  { status: "checked-in",  label: "Checked In",  dot: "bg-amber-500" },
-  { status: "in-progress", label: "In Progress", dot: "bg-violet-500" },
+  { status: "checked-in",  label: "Checked In",  dot: "bg-purple-500" },
+  { status: "in-progress", label: "In Progress", dot: "bg-orange-500" },
   { status: "completed",   label: "Completed",   dot: "bg-emerald-500" },
   { status: "cancelled",   label: "Cancelled",   dot: "bg-red-500" },
   { status: "no-show",     label: "No Show",     dot: "bg-gray-400" },
