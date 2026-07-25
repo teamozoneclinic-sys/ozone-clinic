@@ -76,7 +76,7 @@ function getStatusStyle(status: Appointment["status"]) {
     case "checked-in":
       return "bg-amber-50 border-l-4 border-l-amber-500 text-amber-900 hover:bg-amber-100"
     case "in-progress":
-      return "bg-teal-50 border-l-4 border-l-teal-500 text-teal-900 hover:bg-teal-100"
+      return "bg-violet-50 border-l-4 border-l-violet-500 text-violet-900 hover:bg-violet-100"
     case "completed":
       return "bg-emerald-50 border-l-4 border-l-emerald-500 text-emerald-900 hover:bg-emerald-100"
     case "cancelled":
@@ -93,7 +93,7 @@ function getStatusStyle(status: Appointment["status"]) {
 const STATUS_LEGEND: { status: Appointment["status"]; label: string; dot: string }[] = [
   { status: "scheduled",   label: "Scheduled",   dot: "bg-blue-500" },
   { status: "checked-in",  label: "Checked In",  dot: "bg-amber-500" },
-  { status: "in-progress", label: "In Progress", dot: "bg-teal-500" },
+  { status: "in-progress", label: "In Progress", dot: "bg-violet-500" },
   { status: "completed",   label: "Completed",   dot: "bg-emerald-500" },
   { status: "cancelled",   label: "Cancelled",   dot: "bg-red-500" },
   { status: "no-show",     label: "No Show",     dot: "bg-gray-400" },

@@ -53,6 +53,66 @@ function notifyCancellation(appt: {
     })
 }
 
+// Fire-and-forget WhatsApp reschedule notice. Prefers a dedicated
+// "appointment_rescheduled" template if approved, falls back to the
+// existing "appointment_confirmation" template so delivery is guaranteed
+// without any Meta setup. Params for confirmation template:
+//   {{1}} patient name  {{2}} doctor name  {{3}} date  {{4}} time  {{5}} type
+function notifyReschedule(appt: {
+  patientId: string
+  doctorId: string
+  date: string
+  time: string
+  type: string
+}): void {
+  Promise.all([
+    Patient.findById(appt.patientId),
+    appt.doctorId ? Doctor.findById(appt.doctorId) : Promise.resolve(null),
+  ])
+    .then(async ([patient, doctor]) => {
+      if (!patient?.phone) return
+
+      const formattedDate = new Date(appt.date).toLocaleDateString("en-PK", { dateStyle: "long" })
+      const formattedTime = formatTime12h(appt.time)
+      const appointmentType = appt.type
+        ? appt.type.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+        : "Consultation"
+
+      const params = [
+        patient.name || "Patient",
+        doctor?.name || "Doctor",
+        formattedDate,
+        formattedTime,
+        appointmentType,
+      ]
+
+      // Try the dedicated rescheduled template first (patient-friendly wording).
+      let ok = await sendWhatsAppTemplate(patient.phone, "appointment_rescheduled", params)
+      if (ok) {
+        console.log(`[WhatsApp] ✅ Reschedule notice sent to ${patient.phone} (${patient.name})`)
+        return
+      }
+
+      // Fallback — appointment_confirmation carries the same 5 params. The
+      // patient sees a fresh confirmation with the new date/time, which
+      // functionally communicates the reschedule until the dedicated
+      // template is approved in Meta.
+      ok = await sendWhatsAppTemplate(patient.phone, "appointment_confirmation", params)
+      if (ok) {
+        console.log(
+          `[WhatsApp] ✅ Reschedule notice (via confirmation template) sent to ${patient.phone} (${patient.name})`
+        )
+      } else {
+        console.warn(
+          `[WhatsApp] ⚠ Reschedule notice failed for ${patient.phone} — both templates rejected by Meta.`
+        )
+      }
+    })
+    .catch((err) => {
+      console.error("[WhatsApp] Reschedule notification failed:", err)
+    })
+}
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getRequestUser(request)
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -74,6 +134,15 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const gate = await requirePermission(request, requiredPerm)
   if ("response" in gate) return gate.response
   const { user } = gate
+
+  // Snapshot the pre-update date/time so we can detect a genuine reschedule
+  // AFTER the save (any date/time change on a non-cancelling update fires a
+  // WhatsApp notice to the patient). Loaded here to avoid a second query.
+  let preUpdate: { date: string; time: string } | null = null
+  if (body.status !== "cancelled" && (body.date !== undefined || body.time !== undefined)) {
+    const snapshot = await Appointment.findById(id).select("date time")
+    if (snapshot) preUpdate = { date: snapshot.date, time: snapshot.time }
+  }
 
   // When cancelling, void the linked invoice (paid or unpaid). For paid
   // invoices, capture the collected amount as `refundDue` so the front desk
@@ -131,6 +200,41 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       date: appointment.date,
       time: appointment.time,
     })
+  }
+
+  // Reschedule notification — the date OR time actually changed, and the
+  // update isn't the cancellation flow. Fires WhatsApp + writes audit log.
+  if (
+    preUpdate &&
+    body.status !== "cancelled" &&
+    appointment.status !== "cancelled" &&
+    (preUpdate.date !== appointment.date || preUpdate.time !== appointment.time)
+  ) {
+    notifyReschedule({
+      patientId: appointment.patientId,
+      doctorId: appointment.doctorId,
+      date: appointment.date,
+      time: appointment.time,
+      type: appointment.type,
+    })
+
+    try {
+      await AuditLog.create({
+        userId: user.id,
+        userName: user.name,
+        userRole: user.role,
+        action: "Appointment Rescheduled",
+        entity: "Appointment",
+        entityId: id,
+        details:
+          `Rescheduled by ${user.name} (${user.role}): ` +
+          `${preUpdate.date} ${preUpdate.time} → ${appointment.date} ${appointment.time}. ` +
+          `Patient notified on WhatsApp.`,
+        timestamp: new Date().toISOString(),
+      })
+    } catch {
+      // Audit failure must not block the update
+    }
   }
 
   return NextResponse.json({ data: appointment.toJSON() })
