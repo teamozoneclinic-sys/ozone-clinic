@@ -3,7 +3,7 @@ import type { RolePermissions, Permission, ClinicInfo, AppointmentDefaults } fro
 export const APPOINTMENT_STATUSES = [
   { value: "scheduled", label: "Scheduled", color: "bg-blue-100 text-blue-800" },
   { value: "checked-in", label: "Checked In", color: "bg-amber-100 text-amber-800" },
-  { value: "in-progress", label: "In Progress", color: "bg-teal-100 text-teal-800" },
+  { value: "in-progress", label: "In Progress", color: "bg-violet-100 text-violet-800" },
   { value: "completed", label: "Completed", color: "bg-emerald-100 text-emerald-800" },
   { value: "cancelled", label: "Cancelled", color: "bg-red-100 text-red-800" },
   { value: "no-show", label: "No Show", color: "bg-gray-100 text-gray-800" },
