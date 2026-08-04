@@ -107,25 +107,55 @@ function useLiveData() {
   return { data, error, lastSync }
 }
 
-// ── Highlight the "current" appointment ────────────────────────────────────
-function isCurrentAppointment(
-  a: DisplayAppointment,
-  now: Date,
-  allActive: DisplayAppointment[]
-): boolean {
-  if (a.status === "in-progress") return true
-  const anyInProgress = allActive.some((x) => x.status === "in-progress")
-  if (anyInProgress) return false
-  const nowMins = now.getHours() * 60 + now.getMinutes()
-  const upcoming = allActive
-    .filter((x) => x.status === "scheduled" || x.status === "checked-in")
-    .map((x) => {
-      const [h, m] = x.time.split(":").map(Number)
-      return { id: x.id, mins: h * 60 + m }
-    })
-    .filter((x) => x.mins >= nowMins - 15)
-    .sort((a, b) => a.mins - b.mins)
-  return upcoming[0]?.id === a.id
+// ── Compute which appointment is "NOW" and which is "UP NEXT" ─────────────
+// NOW  = the in-progress appointment (or, if none, the imminent scheduled/
+//        checked-in one within ±15 min of the current time).
+// UP NEXT = the next scheduled/checked-in appointment after NOW in the
+//        chronological queue — this gets a blinking indicator so the
+//        patient in the waiting room knows to be ready.
+function getFocusedIds(
+  active: DisplayAppointment[],
+  now: Date
+): { currentId: string | null; upNextId: string | null } {
+  const queue = active
+    .filter(
+      (x) => x.status === "scheduled" || x.status === "checked-in" || x.status === "in-progress"
+    )
+    .sort((a, b) => a.time.localeCompare(b.time))
+
+  const inProgress = queue.find((x) => x.status === "in-progress")
+  let currentId: string | null = null
+
+  if (inProgress) {
+    currentId = inProgress.id
+  } else {
+    const nowMins = now.getHours() * 60 + now.getMinutes()
+    const imminent = queue
+      .map((x) => {
+        const [h, m] = x.time.split(":").map(Number)
+        return { id: x.id, mins: h * 60 + m }
+      })
+      .filter((x) => x.mins >= nowMins - 15)
+      .sort((a, b) => a.mins - b.mins)[0]
+    if (imminent) currentId = imminent.id
+  }
+
+  // UP NEXT = next scheduled/checked-in after the current one
+  let upNextId: string | null = null
+  const currentIdx = currentId ? queue.findIndex((x) => x.id === currentId) : -1
+  for (let i = currentIdx + 1; i < queue.length; i++) {
+    if (queue[i].status === "scheduled" || queue[i].status === "checked-in") {
+      upNextId = queue[i].id
+      break
+    }
+  }
+  // If nothing is "current" and the first thing in queue isn't already
+  // marked as current, that first upcoming is up-next.
+  if (!upNextId && !currentId && queue.length > 0) {
+    upNextId = queue[0].id
+  }
+
+  return { currentId, upNextId }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -147,6 +177,15 @@ export default function DisplayBoardPage() {
     }
   }, [data])
 
+  // Recompute focus (NOW / UP NEXT) every minute — depends on `now` too, but
+  // we don't need it to churn every second, so bucket by minute.
+  const nowMinute = Math.floor(now.getTime() / 60_000)
+  const { currentId, upNextId } = useMemo(
+    () => getFocusedIds(active, now),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [active, nowMinute]
+  )
+
   const clockTime = now.toLocaleTimeString("en-PK", {
     hour: "2-digit",
     minute: "2-digit",
@@ -158,19 +197,50 @@ export default function DisplayBoardPage() {
     : null
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
+    <div
+      className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden"
+      style={
+        {
+          // Fluid typography — every text size scales with viewport width via
+          // clamp(min, preferred-vw, max). Reads well on a 720p monitor and
+          // a 4K TV without any breakpoint fiddling.
+          "--txt-h1":    "clamp(1.15rem, 2.1vw, 2.5rem)",
+          "--txt-clock": "clamp(2rem,   4.2vw, 5.5rem)",
+          "--txt-h2":    "clamp(0.9rem, 1.3vw, 1.5rem)",
+          "--txt-time":  "clamp(0.95rem, 1.4vw, 1.85rem)",
+          "--txt-name":  "clamp(0.85rem, 1.15vw, 1.45rem)",
+          "--txt-meta":  "clamp(0.65rem, 0.85vw, 1.05rem)",
+          "--txt-badge": "clamp(0.55rem, 0.72vw, 0.9rem)",
+          "--txt-body":  "clamp(0.7rem, 0.9vw, 1.05rem)",
+          "--txt-tiny":  "clamp(0.6rem, 0.72vw, 0.85rem)",
+        } as React.CSSProperties
+      }
+    >
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <header className="shrink-0 border-b border-border bg-card px-6 py-3 flex items-center justify-between">
+      <header className="shrink-0 border-b border-border bg-card px-[clamp(1rem,2vw,2rem)] py-[clamp(0.5rem,1vw,1rem)] flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight text-foreground truncate">
+          <h1
+            style={{ fontSize: "var(--txt-h1)" }}
+            className="font-bold tracking-tight text-foreground truncate leading-tight"
+          >
             {data?.clinicName ?? "Clinic"}
             <span className="ml-2 text-muted-foreground font-medium">· Appointments Board</span>
           </h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">{clockDate}</p>
+          <p style={{ fontSize: "var(--txt-body)" }} className="mt-0.5 text-muted-foreground">
+            {clockDate}
+          </p>
         </div>
         <div className="text-right shrink-0">
-          <p className="text-4xl font-mono font-bold tabular-nums text-foreground">{clockTime}</p>
-          <div className="mt-0.5 flex items-center justify-end gap-1.5 text-[11px]">
+          <p
+            style={{ fontSize: "var(--txt-clock)" }}
+            className="font-mono font-bold tabular-nums text-foreground leading-none"
+          >
+            {clockTime}
+          </p>
+          <div
+            style={{ fontSize: "var(--txt-tiny)" }}
+            className="mt-1 flex items-center justify-end gap-1.5"
+          >
             <span
               className={`h-1.5 w-1.5 rounded-full ${
                 error
@@ -192,13 +262,21 @@ export default function DisplayBoardPage() {
       </header>
 
       {/* ── Body (fills remaining height, never scrolls) ───────────────── */}
-      <main className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[70%_30%] gap-3 p-3 overflow-hidden">
+      <main className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[70%_30%] gap-[clamp(0.5rem,1vw,1rem)] p-[clamp(0.5rem,1vw,1rem)] overflow-hidden">
         {/* Left 70% — Active */}
         <section className="flex flex-col min-h-0 overflow-hidden">
-          <div className="mb-2 flex items-center justify-between shrink-0">
-            <h2 className="text-base font-semibold text-foreground">
+          <div className="mb-2 flex items-center justify-between gap-3 shrink-0">
+            <h2
+              style={{ fontSize: "var(--txt-h2)" }}
+              className="font-semibold text-foreground"
+            >
               Today&rsquo;s Appointments
-              <span className="ml-2 text-sm font-normal text-muted-foreground">· {active.length}</span>
+              <span
+                style={{ fontSize: "var(--txt-body)" }}
+                className="ml-2 font-normal text-muted-foreground"
+              >
+                · {active.length}
+              </span>
             </h2>
             <StatusLegend />
           </div>
@@ -217,38 +295,77 @@ export default function DisplayBoardPage() {
               >
                 {active.map((a) => {
                   const s = statusStyle(a.status)
-                  const current = isCurrentAppointment(a, now, active)
+                  const isNow = a.id === currentId
+                  const isUpNext = a.id === upNextId
                   return (
                     <article
                       key={a.id}
                       className={[
-                        "relative flex flex-col justify-between rounded-lg border border-l-4 px-3 py-2 min-h-0 overflow-hidden",
+                        "relative flex flex-col justify-between rounded-lg border border-l-4 px-3 py-2 min-h-0 overflow-hidden transition-all",
                         s.bg,
                         s.border,
                         s.accent,
-                        current ? "ring-2 ring-orange-500 shadow-md" : "",
+                        isNow
+                          ? "ring-4 ring-orange-500 ring-offset-2 ring-offset-background shadow-[0_0_20px_rgba(249,115,22,0.55)] z-10"
+                          : "",
+                        isUpNext
+                          ? "ring-2 ring-sky-500 ring-offset-1 ring-offset-background shadow-md"
+                          : "",
                       ].join(" ")}
                     >
-                      {current && (
-                        <span className="absolute top-1 right-1 rounded-full bg-orange-500 px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider text-white shadow-sm">
-                          Now
+                      {/* NOW badge — big, absolute, pulsing so it's unmissable */}
+                      {isNow && (
+                        <>
+                          {/* Pulsing outer glow — animate-ping fades + expands */}
+                          <span
+                            aria-hidden
+                            className="pointer-events-none absolute inset-0 rounded-lg ring-4 ring-orange-400 animate-ping opacity-30"
+                          />
+                          <span
+                            style={{ fontSize: "var(--txt-badge)" }}
+                            className="absolute -top-2 left-2 z-20 rounded-full bg-orange-500 px-2 py-0.5 font-extrabold uppercase tracking-wider text-white shadow-md flex items-center gap-1"
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+                            Now Serving
+                          </span>
+                        </>
+                      )}
+                      {/* UP NEXT badge — blinking to attract the patient's attention */}
+                      {isUpNext && (
+                        <span
+                          style={{ fontSize: "var(--txt-badge)" }}
+                          className="absolute -top-2 left-2 z-20 rounded-full bg-sky-500 px-2 py-0.5 font-extrabold uppercase tracking-wider text-white shadow animate-pulse flex items-center gap-1"
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                          Up Next — Please Get Ready
                         </span>
                       )}
+
                       <div className="flex items-baseline justify-between gap-2">
-                        <span className={`text-lg font-bold leading-tight ${s.text}`}>
+                        <span
+                          style={{ fontSize: "var(--txt-time)" }}
+                          className={`font-bold leading-tight ${s.text}`}
+                        >
                           {formatTime12h(a.time)}
                         </span>
                         <span
-                          className={`inline-flex items-center gap-1 rounded-full ${s.bg} ${s.text} px-1.5 py-0 text-[10px] font-semibold border ${s.border} shrink-0`}
+                          style={{ fontSize: "var(--txt-badge)" }}
+                          className={`inline-flex items-center gap-1 rounded-full ${s.bg} ${s.text} px-1.5 py-0 font-semibold border ${s.border} shrink-0`}
                         >
                           <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
                           {s.label}
                         </span>
                       </div>
-                      <p className={`mt-0.5 text-sm font-semibold leading-tight truncate ${s.text}`}>
+                      <p
+                        style={{ fontSize: "var(--txt-name)" }}
+                        className={`mt-0.5 font-semibold leading-tight truncate ${s.text}`}
+                      >
                         {a.patientName}
                       </p>
-                      <p className={`text-[11px] leading-tight truncate opacity-80 ${s.text}`}>
+                      <p
+                        style={{ fontSize: "var(--txt-meta)" }}
+                        className={`leading-tight truncate opacity-80 ${s.text}`}
+                      >
                         {a.doctorName ? `Dr. ${a.doctorName}` : <em className="opacity-70">Doctor not assigned</em>}
                         {a.doctorSpecialty ? ` · ${a.doctorSpecialty}` : ""}
                       </p>
@@ -261,10 +378,18 @@ export default function DisplayBoardPage() {
         </section>
 
         {/* Right 30% — Completed */}
-        <aside className="flex flex-col min-h-0 overflow-hidden border-l border-border pl-3">
-          <h2 className="mb-2 text-base font-semibold text-emerald-700 shrink-0">
+        <aside className="flex flex-col min-h-0 overflow-hidden border-l border-border pl-[clamp(0.5rem,1vw,1rem)]">
+          <h2
+            style={{ fontSize: "var(--txt-h2)" }}
+            className="mb-2 font-semibold text-emerald-700 shrink-0"
+          >
             Completed
-            <span className="ml-2 text-sm font-normal text-muted-foreground">· {completed.length}</span>
+            <span
+              style={{ fontSize: "var(--txt-body)" }}
+              className="ml-2 font-normal text-muted-foreground"
+            >
+              · {completed.length}
+            </span>
           </h2>
 
           {completed.length === 0 ? (
@@ -272,7 +397,7 @@ export default function DisplayBoardPage() {
           ) : (
             <div className="flex-1 min-h-0 overflow-hidden">
               <div
-                className="grid gap-1.5 h-full"
+                className="grid gap-2 h-full"
                 style={{
                   gridAutoRows: "minmax(0, 1fr)",
                 }}
@@ -282,23 +407,41 @@ export default function DisplayBoardPage() {
                   return (
                     <article
                       key={a.id}
-                      className={`flex items-center justify-between rounded-md border ${s.border} ${s.bg} px-2.5 py-1.5 min-h-0 overflow-hidden`}
+                      className={[
+                        "flex items-center justify-between gap-3 rounded-lg border border-l-4 px-3 py-2 min-h-0 overflow-hidden",
+                        s.bg,
+                        s.border,
+                        s.accent,
+                      ].join(" ")}
                     >
                       <div className="min-w-0 flex-1">
-                        <p className={`text-sm font-semibold truncate leading-tight ${s.text}`}>
+                        <p
+                          style={{ fontSize: "var(--txt-name)" }}
+                          className={`font-semibold truncate leading-tight ${s.text}`}
+                        >
                           {a.patientName}
                         </p>
-                        <p className={`text-[11px] opacity-70 truncate leading-tight ${s.text}`}>
+                        <p
+                          style={{ fontSize: "var(--txt-meta)" }}
+                          className={`mt-0.5 opacity-75 truncate leading-tight ${s.text}`}
+                        >
                           {a.doctorName ? `Dr. ${a.doctorName}` : "—"}
                         </p>
                       </div>
-                      <div className="text-right ml-2 shrink-0">
-                        <p className={`text-sm font-bold leading-tight ${s.text}`}>
+                      <div className="text-right shrink-0 flex flex-col items-end gap-0.5">
+                        <p
+                          style={{ fontSize: "var(--txt-time)" }}
+                          className={`font-bold leading-tight ${s.text}`}
+                        >
                           {formatTime12h(a.time)}
                         </p>
-                        <p className="text-[9px] text-emerald-700 font-semibold uppercase tracking-wide leading-tight">
-                          ✓ Done
-                        </p>
+                        <span
+                          style={{ fontSize: "var(--txt-badge)" }}
+                          className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0 font-semibold border border-emerald-200"
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          Done
+                        </span>
                       </div>
                     </article>
                   )
@@ -310,7 +453,10 @@ export default function DisplayBoardPage() {
       </main>
 
       {/* ── Footer / status line ───────────────────────────────────────── */}
-      <footer className="shrink-0 border-t border-border bg-card px-6 py-1.5 text-center text-[11px] text-muted-foreground">
+      <footer
+        style={{ fontSize: "var(--txt-tiny)" }}
+        className="shrink-0 border-t border-border bg-card px-[clamp(1rem,2vw,2rem)] py-1.5 text-center text-muted-foreground"
+      >
         Screen auto-updates every 15 seconds · For assistance, please contact the reception desk
       </footer>
     </div>
@@ -329,7 +475,10 @@ function StatusLegend() {
     { label: "No Show",     dot: "bg-gray-400" },
   ]
   return (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted-foreground">
+    <div
+      style={{ fontSize: "var(--txt-tiny)" }}
+      className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-muted-foreground"
+    >
       {items.map((i) => (
         <span key={i.label} className="flex items-center gap-1">
           <span className={`h-1.5 w-1.5 rounded-full ${i.dot}`} />
@@ -350,7 +499,7 @@ function EmptyPanel({ message, muted = false }: { message: string; muted?: boole
           : "border-border bg-muted/40 text-muted-foreground",
       ].join(" ")}
     >
-      <p className="text-sm">{message}</p>
+      <p style={{ fontSize: "var(--txt-body)" }}>{message}</p>
     </div>
   )
 }
