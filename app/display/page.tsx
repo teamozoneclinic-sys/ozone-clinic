@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from "react"
 
 // ── Types ───────────────────────────────────────────────────────────────────
+type Status = "scheduled" | "checked-in" | "in-progress" | "completed" | "cancelled" | "no-show"
+
 type DisplayAppointment = {
   id: string
   time: string
   duration: number
-  status: "scheduled" | "checked-in" | "in-progress" | "completed" | "cancelled" | "no-show"
+  status: Status
   patientName: string
   doctorName: string
   doctorSpecialty: string
@@ -19,26 +21,6 @@ type DisplayPayload = {
   clinicName: string
   serverTime: string
   appointments: DisplayAppointment[]
-}
-
-// ── Status colour system (mirrors the app's calendar palette) ──────────────
-function statusStyle(status: DisplayAppointment["status"]) {
-  switch (status) {
-    case "scheduled":
-      return { bg: "bg-blue-50",    border: "border-blue-200",    text: "text-blue-900",    accent: "border-l-blue-500",    dot: "bg-blue-500",    label: "Scheduled" }
-    case "checked-in":
-      return { bg: "bg-purple-50",  border: "border-purple-200",  text: "text-purple-900",  accent: "border-l-purple-500",  dot: "bg-purple-500",  label: "Checked In" }
-    case "in-progress":
-      return { bg: "bg-orange-50",  border: "border-orange-200",  text: "text-orange-900",  accent: "border-l-orange-500",  dot: "bg-orange-500",  label: "In Progress" }
-    case "completed":
-      return { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-900", accent: "border-l-emerald-500", dot: "bg-emerald-500", label: "Completed" }
-    case "cancelled":
-      return { bg: "bg-red-50",     border: "border-red-200",     text: "text-red-900",     accent: "border-l-red-500",     dot: "bg-red-500",     label: "Cancelled" }
-    case "no-show":
-      return { bg: "bg-gray-100",   border: "border-gray-200",    text: "text-gray-700",    accent: "border-l-gray-400",    dot: "bg-gray-400",    label: "No Show" }
-    default:
-      return { bg: "bg-slate-50",   border: "border-slate-200",   text: "text-slate-800",   accent: "border-l-slate-400",   dot: "bg-slate-400",   label: status }
-  }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -96,40 +78,60 @@ function useLiveData() {
   return { data, error, lastSync }
 }
 
-// ── Compute NOW + UP NEXT ─────────────────────────────────────────────────
-function getFocusedIds(active: DisplayAppointment[], now: Date) {
-  const queue = active
-    .filter((x) => ["scheduled", "checked-in", "in-progress"].includes(x.status))
-    .sort((a, b) => a.time.localeCompare(b.time))
-
-  const inProgress = queue.find((x) => x.status === "in-progress")
-  let currentId: string | null = null
-
-  if (inProgress) {
-    currentId = inProgress.id
-  } else {
-    const nowMins = now.getHours() * 60 + now.getMinutes()
-    const imminent = queue
-      .map((x) => {
-        const [h, m] = x.time.split(":").map(Number)
-        return { id: x.id, mins: h * 60 + m }
-      })
-      .filter((x) => x.mins >= nowMins - 15)
-      .sort((a, b) => a.mins - b.mins)[0]
-    if (imminent) currentId = imminent.id
-  }
-
-  let upNextId: string | null = null
-  const currentIdx = currentId ? queue.findIndex((x) => x.id === currentId) : -1
-  for (let i = currentIdx + 1; i < queue.length; i++) {
-    if (["scheduled", "checked-in"].includes(queue[i].status)) {
-      upNextId = queue[i].id; break
-    }
-  }
-  if (!upNextId && !currentId && queue.length > 0) upNextId = queue[0].id
-
-  return { currentId, upNextId }
+// ── Column theme system (each column has its own colour tokens) ────────────
+type ColumnTheme = {
+  key: "scheduled" | "checked-in" | "in-progress" | "completed"
+  title: string
+  bg: string           // subtle tinted background for the column
+  headerBar: string    // top accent bar on the column
+  titleText: string    // heading colour
+  cardAccent: string   // left border on each card
+  countBg: string      // count badge in header
+  countText: string
 }
+
+const COLUMNS: ColumnTheme[] = [
+  {
+    key: "scheduled",
+    title: "Scheduled",
+    bg: "bg-blue-50/40",
+    headerBar: "bg-blue-500",
+    titleText: "text-blue-800",
+    cardAccent: "border-l-blue-500",
+    countBg: "bg-blue-100",
+    countText: "text-blue-800",
+  },
+  {
+    key: "checked-in",
+    title: "Checked In",
+    bg: "bg-purple-50/40",
+    headerBar: "bg-purple-500",
+    titleText: "text-purple-800",
+    cardAccent: "border-l-purple-500",
+    countBg: "bg-purple-100",
+    countText: "text-purple-800",
+  },
+  {
+    key: "in-progress",
+    title: "In Progress",
+    bg: "bg-orange-50/50",
+    headerBar: "bg-orange-500",
+    titleText: "text-orange-800",
+    cardAccent: "border-l-orange-500",
+    countBg: "bg-orange-100",
+    countText: "text-orange-800",
+  },
+  {
+    key: "completed",
+    title: "Completed",
+    bg: "bg-emerald-50/40",
+    headerBar: "bg-emerald-500",
+    titleText: "text-emerald-800",
+    cardAccent: "border-l-emerald-500",
+    countBg: "bg-emerald-100",
+    countText: "text-emerald-800",
+  },
+]
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Page
@@ -138,24 +140,27 @@ export default function DisplayBoardPage() {
   const now = useLiveClock()
   const { data, error, lastSync } = useLiveData()
 
-  const { active, completed } = useMemo(() => {
+  // Bucket every appointment into its column (cancelled + no-show are omitted
+  // from the patient-facing board — they never help someone in the waiting room)
+  const buckets = useMemo(() => {
     const all = data?.appointments ?? []
+    const byTimeAsc = (a: DisplayAppointment, b: DisplayAppointment) =>
+      a.time.localeCompare(b.time)
+    const byTimeDesc = (a: DisplayAppointment, b: DisplayAppointment) =>
+      b.time.localeCompare(a.time)
     return {
-      active: all
-        .filter((a) => a.status !== "completed")
-        .sort((a, b) => a.time.localeCompare(b.time)),
-      completed: all
-        .filter((a) => a.status === "completed")
-        .sort((a, b) => b.time.localeCompare(a.time)),
-    }
+      scheduled:   all.filter((a) => a.status === "scheduled").sort(byTimeAsc),
+      "checked-in": all.filter((a) => a.status === "checked-in").sort(byTimeAsc),
+      "in-progress": all.filter((a) => a.status === "in-progress").sort(byTimeAsc),
+      completed:   all.filter((a) => a.status === "completed").sort(byTimeDesc), // newest done first
+    } as const
   }, [data])
 
-  const nowMinute = Math.floor(now.getTime() / 60_000)
-  const { currentId, upNextId } = useMemo(
-    () => getFocusedIds(active, now),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [active, nowMinute]
-  )
+  // "Up Next" = the first checked-in patient; falls back to first scheduled
+  // if the waiting room is empty.
+  const upNextId = useMemo(() => {
+    return buckets["checked-in"][0]?.id ?? buckets.scheduled[0]?.id ?? null
+  }, [buckets])
 
   const clockTime = now.toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit", hour12: true })
   const clockDate = data ? formatDateLong(data.date) : ""
@@ -168,18 +173,25 @@ export default function DisplayBoardPage() {
       className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden"
       style={
         {
-          // Fluid typography — but with sensible caps so wide TVs don't
-          // blow up compact side-panel content.
-          "--txt-clock": "clamp(2rem, 3.6vw, 4.5rem)",
-          "--txt-h1":    "clamp(1.05rem, 1.7vw, 2rem)",
-          "--txt-h2":    "clamp(0.85rem, 1.1vw, 1.25rem)",
-          "--txt-time":  "clamp(0.95rem, 1.2vw, 1.5rem)",
-          "--txt-name":  "clamp(0.85rem, 1vw,   1.25rem)",
-          "--txt-meta":  "clamp(0.7rem,  0.8vw, 0.95rem)",
-          "--txt-body":  "clamp(0.72rem, 0.82vw, 0.95rem)",
+          "--txt-clock": "clamp(1.75rem, 3.2vw, 3.75rem)",
+          "--txt-h1":    "clamp(1rem,    1.6vw, 1.85rem)",
+          "--txt-h2":    "clamp(0.8rem,  1vw,   1.2rem)",
+          "--txt-time":  "clamp(0.9rem,  1.15vw, 1.4rem)",
+          "--txt-name":  "clamp(0.85rem, 1vw,   1.2rem)",
+          "--txt-meta":  "clamp(0.7rem,  0.82vw, 0.95rem)",
+          "--txt-body":  "clamp(0.72rem, 0.85vw, 0.95rem)",
         } as React.CSSProperties
       }
     >
+      {/* Custom scrollbars — thin, matches the theme */}
+      <style>{`
+        .col-scroll::-webkit-scrollbar { width: 6px; }
+        .col-scroll::-webkit-scrollbar-track { background: transparent; }
+        .col-scroll::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.35); border-radius: 3px; }
+        .col-scroll::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.55); }
+        .col-scroll { scrollbar-width: thin; scrollbar-color: rgba(100, 116, 139, 0.35) transparent; }
+      `}</style>
+
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <header className="shrink-0 border-b border-border bg-card px-6 py-3 flex items-center justify-between gap-4">
         <div className="min-w-0">
@@ -218,154 +230,17 @@ export default function DisplayBoardPage() {
         </div>
       </header>
 
-      {/* ── Body ───────────────────────────────────────────────────────── */}
-      <main className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[70%_30%] gap-4 p-4 overflow-hidden">
-        {/* Left 70% — Active */}
-        <section className="flex flex-col min-h-0 overflow-hidden">
-          <div className="mb-3 flex items-center justify-between gap-3 shrink-0">
-            <h2
-              style={{ fontSize: "var(--txt-h2)" }}
-              className="font-semibold text-foreground"
-            >
-              Today&rsquo;s Appointments
-              <span className="ml-2 font-normal text-muted-foreground">· {active.length}</span>
-            </h2>
-            <StatusLegend />
-          </div>
-
-          {active.length === 0 ? (
-            <EmptyPanel
-              message={data === null ? "Loading appointments…" : "No active appointments for today."}
-            />
-          ) : (
-            <div
-              className="flex-1 min-h-0 grid gap-3 overflow-hidden"
-              style={{
-                gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))",
-                gridAutoRows: "minmax(0, 1fr)",
-              }}
-            >
-              {active.map((a) => {
-                const s = statusStyle(a.status)
-                const isNow = a.id === currentId
-                const isUpNext = a.id === upNextId
-                return (
-                  <article
-                    key={a.id}
-                    className={[
-                      "relative flex flex-col rounded-xl border overflow-hidden bg-card min-h-0",
-                      s.border,
-                      isNow ? "ring-2 ring-orange-500 shadow-[0_0_18px_-2px_rgba(249,115,22,0.55)]" : "",
-                      isUpNext ? "ring-2 ring-sky-500 shadow-[0_0_14px_-4px_rgba(14,165,233,0.5)]" : "",
-                    ].join(" ")}
-                  >
-                    {/* Top ribbon — NOW SERVING or UP NEXT (inline, no clipping) */}
-                    {isNow && (
-                      <div className="flex items-center gap-1.5 bg-orange-500 px-3 py-1 text-white">
-                        <span className="relative flex h-2 w-2">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
-                          <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
-                        </span>
-                        <span className="text-[10px] font-extrabold uppercase tracking-widest">
-                          Now Serving
-                        </span>
-                      </div>
-                    )}
-                    {isUpNext && (
-                      <div className="flex items-center gap-1.5 bg-sky-500 px-3 py-1 text-white animate-pulse">
-                        <span className="h-2 w-2 rounded-full bg-white" />
-                        <span className="text-[10px] font-extrabold uppercase tracking-widest">
-                          Up Next · Please Get Ready
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Card body */}
-                    <div className={`flex-1 min-h-0 flex flex-col justify-between border-l-4 ${s.bg} ${s.accent} px-3 py-2.5`}>
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span
-                          style={{ fontSize: "var(--txt-time)" }}
-                          className={`font-bold leading-tight ${s.text}`}
-                        >
-                          {formatTime12h(a.time)}
-                        </span>
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full ${s.bg} ${s.text} px-1.5 py-0.5 text-[10px] font-semibold border ${s.border} shrink-0`}
-                        >
-                          <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-                          {s.label}
-                        </span>
-                      </div>
-                      <p
-                        style={{ fontSize: "var(--txt-name)" }}
-                        className={`mt-1 font-semibold leading-tight truncate ${s.text}`}
-                      >
-                        {a.patientName}
-                      </p>
-                      <p
-                        style={{ fontSize: "var(--txt-meta)" }}
-                        className={`mt-0.5 leading-tight truncate opacity-75 ${s.text}`}
-                      >
-                        {a.doctorName ? `Dr. ${a.doctorName}` : <em className="opacity-70">Doctor not assigned</em>}
-                        {a.doctorSpecialty ? ` · ${a.doctorSpecialty}` : ""}
-                      </p>
-                    </div>
-                  </article>
-                )
-              })}
-            </div>
-          )}
-        </section>
-
-        {/* Right 30% — Completed (compact history sidebar) */}
-        <aside className="flex flex-col min-h-0 overflow-hidden rounded-xl border border-border bg-card">
-          <div className="shrink-0 border-b border-border px-3 py-2 flex items-baseline justify-between gap-2">
-            <h2
-              style={{ fontSize: "var(--txt-h2)" }}
-              className="font-semibold text-emerald-700"
-            >
-              Completed
-            </h2>
-            <span className="text-xs font-medium text-muted-foreground">
-              {completed.length} today
-            </span>
-          </div>
-
-          {completed.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center p-4">
-              <p className="text-xs text-muted-foreground">No completed visits yet.</p>
-            </div>
-          ) : (
-            <div
-              className="flex-1 min-h-0 grid p-2 gap-1.5 overflow-hidden"
-              style={{ gridAutoRows: "minmax(0, 1fr)" }}
-            >
-              {completed.map((a) => (
-                <article
-                  key={a.id}
-                  className="flex items-center gap-2 min-w-0 rounded-md border border-emerald-100 border-l-4 border-l-emerald-500 bg-emerald-50/60 px-2.5 py-1.5 overflow-hidden"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-emerald-900 truncate leading-tight">
-                      {a.patientName}
-                    </p>
-                    <p className="text-[11px] text-emerald-800/70 truncate leading-tight mt-0.5">
-                      {a.doctorName ? `Dr. ${a.doctorName}` : "—"}
-                    </p>
-                  </div>
-                  <div className="shrink-0 text-right flex flex-col items-end gap-0.5">
-                    <span className="text-[12px] font-bold text-emerald-900 tabular-nums leading-none">
-                      {formatTime12h(a.time)}
-                    </span>
-                    <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider leading-none">
-                      ✓ Done
-                    </span>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </aside>
+      {/* ── Body: 4 columns ────────────────────────────────────────────── */}
+      <main className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 p-3 overflow-hidden">
+        {COLUMNS.map((col) => (
+          <BoardColumn
+            key={col.key}
+            theme={col}
+            items={buckets[col.key]}
+            upNextId={upNextId}
+            isLoading={data === null}
+          />
+        ))}
       </main>
 
       {/* ── Footer ─────────────────────────────────────────────────────── */}
@@ -376,33 +251,195 @@ export default function DisplayBoardPage() {
   )
 }
 
-// ── Helper components ──────────────────────────────────────────────────────
-
-function StatusLegend() {
-  const items = [
-    { label: "Scheduled",   dot: "bg-blue-500" },
-    { label: "Checked In",  dot: "bg-purple-500" },
-    { label: "In Progress", dot: "bg-orange-500" },
-    { label: "Completed",   dot: "bg-emerald-500" },
-    { label: "Cancelled",   dot: "bg-red-500" },
-    { label: "No Show",     dot: "bg-gray-400" },
-  ]
+// ── Column ─────────────────────────────────────────────────────────────────
+function BoardColumn({
+  theme,
+  items,
+  upNextId,
+  isLoading,
+}: {
+  theme: ColumnTheme
+  items: readonly DisplayAppointment[]
+  upNextId: string | null
+  isLoading: boolean
+}) {
+  const isCompleted = theme.key === "completed"
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-      {items.map((i) => (
-        <span key={i.label} className="flex items-center gap-1.5">
-          <span className={`h-1.5 w-1.5 rounded-full ${i.dot}`} />
-          {i.label}
+    <section
+      className={`flex flex-col min-h-0 overflow-hidden rounded-xl border border-border ${theme.bg}`}
+    >
+      {/* Top accent bar */}
+      <div className={`h-1 w-full ${theme.headerBar} shrink-0`} />
+
+      {/* Header */}
+      <div className="shrink-0 px-3 pt-2.5 pb-2 flex items-baseline justify-between gap-2">
+        <h2
+          style={{ fontSize: "var(--txt-h2)" }}
+          className={`font-bold uppercase tracking-wider ${theme.titleText}`}
+        >
+          {theme.title}
+        </h2>
+        <span
+          className={`inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded-full ${theme.countBg} ${theme.countText} text-[11px] font-bold tabular-nums`}
+        >
+          {items.length}
         </span>
-      ))}
-    </div>
+      </div>
+
+      {/* Body — scrolls when it overflows */}
+      <div className="flex-1 min-h-0 overflow-y-auto col-scroll px-2 pb-2">
+        {isLoading ? (
+          <EmptyState message="Loading…" />
+        ) : items.length === 0 ? (
+          <EmptyState
+            message={
+              theme.key === "scheduled"   ? "No upcoming appointments."
+              : theme.key === "checked-in" ? "Waiting room is empty."
+              : theme.key === "in-progress" ? "No consultations in progress."
+              : "No completed visits yet."
+            }
+          />
+        ) : (
+          <div className={`flex flex-col ${isCompleted ? "gap-1.5" : "gap-2"}`}>
+            {items.map((a) =>
+              isCompleted ? (
+                <CompletedRow key={a.id} appt={a} accentClass={theme.cardAccent} />
+              ) : (
+                <QueueCard
+                  key={a.id}
+                  appt={a}
+                  accentClass={theme.cardAccent}
+                  columnKey={theme.key}
+                  isUpNext={a.id === upNextId}
+                />
+              )
+            )}
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 
-function EmptyPanel({ message }: { message: string }) {
+// ── Queue card (Scheduled / Checked In / In Progress) ─────────────────────
+function QueueCard({
+  appt,
+  accentClass,
+  columnKey,
+  isUpNext,
+}: {
+  appt: DisplayAppointment
+  accentClass: string
+  columnKey: ColumnTheme["key"]
+  isUpNext: boolean
+}) {
+  const badge = getCardBadge(columnKey, isUpNext)
+
   return (
-    <div className="flex flex-1 items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 text-muted-foreground">
-      <p className="text-sm">{message}</p>
+    <article
+      className={`
+        rounded-lg border border-border border-l-4 ${accentClass} bg-card
+        px-3 py-2 flex flex-col gap-1
+        ${columnKey === "in-progress" ? "shadow-[0_0_12px_-4px_rgba(249,115,22,0.45)]" : ""}
+      `}
+    >
+      {/* Top row: time + badge */}
+      <div className="flex items-center justify-between gap-2">
+        <span
+          style={{ fontSize: "var(--txt-time)" }}
+          className="font-bold text-foreground leading-none tabular-nums"
+        >
+          {formatTime12h(appt.time)}
+        </span>
+        {badge && (
+          <span
+            className={`shrink-0 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wider ${badge.className}`}
+          >
+            {badge.pulseDot && (
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-white" />
+              </span>
+            )}
+            {badge.text}
+          </span>
+        )}
+      </div>
+
+      {/* Patient */}
+      <p
+        style={{ fontSize: "var(--txt-name)" }}
+        className="font-semibold text-foreground leading-tight truncate"
+      >
+        {appt.patientName}
+      </p>
+
+      {/* Doctor */}
+      <p
+        style={{ fontSize: "var(--txt-meta)" }}
+        className="text-muted-foreground leading-tight truncate"
+      >
+        {appt.doctorName ? (
+          <>
+            Dr. {appt.doctorName}
+            {appt.doctorSpecialty ? ` · ${appt.doctorSpecialty}` : ""}
+          </>
+        ) : (
+          <em className="opacity-70">Doctor not assigned</em>
+        )}
+      </p>
+    </article>
+  )
+}
+
+// ── Compact completed row ──────────────────────────────────────────────────
+function CompletedRow({ appt, accentClass }: { appt: DisplayAppointment; accentClass: string }) {
+  return (
+    <article
+      className={`rounded-md border border-border border-l-4 ${accentClass} bg-card px-2.5 py-1.5 flex items-center gap-2`}
+    >
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-foreground truncate leading-tight">
+          {appt.patientName}
+        </p>
+        <p className="text-[11px] text-muted-foreground truncate leading-tight mt-0.5">
+          {appt.doctorName ? `Dr. ${appt.doctorName}` : "—"}
+        </p>
+      </div>
+      <div className="shrink-0 flex items-center gap-1">
+        <span className="text-[12px] font-bold text-foreground tabular-nums">
+          {formatTime12h(appt.time)}
+        </span>
+        <span className="text-emerald-600 text-sm leading-none" aria-label="Completed">✓</span>
+      </div>
+    </article>
+  )
+}
+
+// ── Card badge logic — SCHEDULED / UP NEXT / WAITING / NOW SERVING ────────
+function getCardBadge(
+  columnKey: ColumnTheme["key"],
+  isUpNext: boolean
+): { text: string; className: string; pulseDot?: boolean } | null {
+  if (columnKey === "in-progress") {
+    return { text: "Now Serving", className: "bg-orange-500 text-white", pulseDot: true }
+  }
+  if (columnKey === "checked-in") {
+    if (isUpNext) return { text: "Up Next", className: "bg-orange-500 text-white", pulseDot: true }
+    return { text: "Waiting", className: "bg-slate-200 text-slate-700" }
+  }
+  if (columnKey === "scheduled") {
+    if (isUpNext) return { text: "Up Next", className: "bg-orange-500 text-white", pulseDot: true }
+    return { text: "Scheduled", className: "bg-slate-700 text-white" }
+  }
+  return null
+}
+
+// ── Empty state ────────────────────────────────────────────────────────────
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="h-full flex items-center justify-center py-6">
+      <p className="text-[12px] text-muted-foreground italic text-center px-2">{message}</p>
     </div>
   )
 }
