@@ -21,23 +21,23 @@ type DisplayPayload = {
   appointments: DisplayAppointment[]
 }
 
-// ── Status → colour palette (matches the app's appointments calendar) ──────
+// ── Status → colour palette (matches the app's appointment calendar exactly) ──
 function statusStyle(status: DisplayAppointment["status"]) {
   switch (status) {
     case "scheduled":
-      return { bg: "bg-blue-50",    border: "border-blue-400",    text: "text-blue-900",    dot: "bg-blue-500",    label: "Scheduled" }
+      return { bg: "bg-blue-50",    border: "border-blue-300",    text: "text-blue-900",    accent: "border-l-blue-500",    dot: "bg-blue-500",    label: "Scheduled" }
     case "checked-in":
-      return { bg: "bg-purple-50",  border: "border-purple-400",  text: "text-purple-900",  dot: "bg-purple-500",  label: "Checked In" }
+      return { bg: "bg-purple-50",  border: "border-purple-300",  text: "text-purple-900",  accent: "border-l-purple-500",  dot: "bg-purple-500",  label: "Checked In" }
     case "in-progress":
-      return { bg: "bg-orange-50",  border: "border-orange-500",  text: "text-orange-900",  dot: "bg-orange-500",  label: "In Progress" }
+      return { bg: "bg-orange-50",  border: "border-orange-300",  text: "text-orange-900",  accent: "border-l-orange-500",  dot: "bg-orange-500",  label: "In Progress" }
     case "completed":
-      return { bg: "bg-emerald-50", border: "border-emerald-400", text: "text-emerald-900", dot: "bg-emerald-500", label: "Completed" }
+      return { bg: "bg-emerald-50", border: "border-emerald-300", text: "text-emerald-900", accent: "border-l-emerald-500", dot: "bg-emerald-500", label: "Completed" }
     case "cancelled":
-      return { bg: "bg-red-50",     border: "border-red-400",     text: "text-red-900",     dot: "bg-red-500",     label: "Cancelled" }
+      return { bg: "bg-red-50",     border: "border-red-300",     text: "text-red-900",     accent: "border-l-red-500",     dot: "bg-red-500",     label: "Cancelled" }
     case "no-show":
-      return { bg: "bg-gray-100",   border: "border-gray-300",    text: "text-gray-700",    dot: "bg-gray-400",    label: "No Show" }
+      return { bg: "bg-gray-100",   border: "border-gray-300",    text: "text-gray-700",    accent: "border-l-gray-400",    dot: "bg-gray-400",    label: "No Show" }
     default:
-      return { bg: "bg-slate-100",  border: "border-slate-300",   text: "text-slate-800",   dot: "bg-slate-400",   label: status }
+      return { bg: "bg-slate-50",   border: "border-slate-200",   text: "text-slate-800",   accent: "border-l-slate-400",   dot: "bg-slate-400",   label: status }
   }
 }
 
@@ -107,9 +107,7 @@ function useLiveData() {
   return { data, error, lastSync }
 }
 
-// ── Highlight rule ─────────────────────────────────────────────────────────
-// The "current" appointment is any in-progress one; if none, the next
-// upcoming scheduled/checked-in appointment closest to now.
+// ── Highlight the "current" appointment ────────────────────────────────────
 function isCurrentAppointment(
   a: DisplayAppointment,
   now: Date,
@@ -118,7 +116,6 @@ function isCurrentAppointment(
   if (a.status === "in-progress") return true
   const anyInProgress = allActive.some((x) => x.status === "in-progress")
   if (anyInProgress) return false
-  // Fallback: next upcoming (scheduled or checked-in) by clock time
   const nowMins = now.getHours() * 60 + now.getMinutes()
   const upcoming = allActive
     .filter((x) => x.status === "scheduled" || x.status === "checked-in")
@@ -126,19 +123,18 @@ function isCurrentAppointment(
       const [h, m] = x.time.split(":").map(Number)
       return { id: x.id, mins: h * 60 + m }
     })
-    .filter((x) => x.mins >= nowMins - 15) // ±15 min tolerance
+    .filter((x) => x.mins >= nowMins - 15)
     .sort((a, b) => a.mins - b.mins)
   return upcoming[0]?.id === a.id
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Page
+// Page — fixed height, no scrolling, matches the app's light theme
 // ═══════════════════════════════════════════════════════════════════════════
 export default function DisplayBoardPage() {
   const now = useLiveClock()
   const { data, error, lastSync } = useLiveData()
 
-  // Partition appointments — active (left 70%) vs completed (right 30%)
   const { active, completed } = useMemo(() => {
     const all = data?.appointments ?? []
     return {
@@ -147,14 +143,13 @@ export default function DisplayBoardPage() {
         .sort((a, b) => a.time.localeCompare(b.time)),
       completed: all
         .filter((a) => a.status === "completed")
-        .sort((a, b) => b.time.localeCompare(a.time)), // most recently done first
+        .sort((a, b) => b.time.localeCompare(a.time)),
     }
   }, [data])
 
   const clockTime = now.toLocaleTimeString("en-PK", {
     hour: "2-digit",
     minute: "2-digit",
-    second: "2-digit",
     hour12: true,
   })
   const clockDate = data ? formatDateLong(data.date) : ""
@@ -163,24 +158,29 @@ export default function DisplayBoardPage() {
     : null
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+    <div className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden">
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <header className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-8 py-5">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">
-            {data?.clinicName ?? "Clinic"} · <span className="text-slate-300">Appointments Board</span>
+      <header className="shrink-0 border-b border-border bg-card px-6 py-3 flex items-center justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground truncate">
+            {data?.clinicName ?? "Clinic"}
+            <span className="ml-2 text-muted-foreground font-medium">· Appointments Board</span>
           </h1>
-          <p className="mt-1 text-sm text-slate-400">{clockDate}</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">{clockDate}</p>
         </div>
-        <div className="text-right">
-          <p className="text-5xl font-mono font-bold tabular-nums text-white">{clockTime}</p>
-          <div className="mt-1 flex items-center justify-end gap-2 text-xs">
+        <div className="text-right shrink-0">
+          <p className="text-4xl font-mono font-bold tabular-nums text-foreground">{clockTime}</p>
+          <div className="mt-0.5 flex items-center justify-end gap-1.5 text-[11px]">
             <span
-              className={`h-2 w-2 rounded-full ${
-                error ? "bg-red-500" : secondsSinceSync !== null && secondsSinceSync < 30 ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+              className={`h-1.5 w-1.5 rounded-full ${
+                error
+                  ? "bg-red-500"
+                  : secondsSinceSync !== null && secondsSinceSync < 30
+                  ? "bg-emerald-500 animate-pulse"
+                  : "bg-amber-500"
               }`}
             />
-            <span className="text-slate-400">
+            <span className="text-muted-foreground">
               {error
                 ? `Sync error: ${error}`
                 : lastSync
@@ -191,116 +191,127 @@ export default function DisplayBoardPage() {
         </div>
       </header>
 
-      {/* ── Body ───────────────────────────────────────────────────────── */}
-      <main className="flex flex-1 gap-6 p-6 overflow-hidden">
-        {/* Left 70% — Active / upcoming appointments */}
-        <section className="flex-[7] flex flex-col min-w-0">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-slate-100">
-              Today’s Appointments{" "}
-              <span className="text-slate-500 text-base font-normal">· {active.length}</span>
+      {/* ── Body (fills remaining height, never scrolls) ───────────────── */}
+      <main className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[70%_30%] gap-3 p-3 overflow-hidden">
+        {/* Left 70% — Active */}
+        <section className="flex flex-col min-h-0 overflow-hidden">
+          <div className="mb-2 flex items-center justify-between shrink-0">
+            <h2 className="text-base font-semibold text-foreground">
+              Today&rsquo;s Appointments
+              <span className="ml-2 text-sm font-normal text-muted-foreground">· {active.length}</span>
             </h2>
             <StatusLegend />
           </div>
 
           {active.length === 0 ? (
-            <EmptyPanel
-              message={
-                data === null
-                  ? "Loading appointments…"
-                  : "No active appointments for today."
-              }
-            />
+            <EmptyPanel message={data === null ? "Loading appointments…" : "No active appointments for today."} />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 overflow-y-auto pr-1">
-              {active.map((a) => {
-                const s = statusStyle(a.status)
-                const current = isCurrentAppointment(a, now, active)
-                return (
-                  <article
-                    key={a.id}
-                    className={[
-                      "relative flex flex-col gap-2 rounded-xl border-2 p-4 transition-all",
-                      s.bg,
-                      s.border,
-                      current ? "ring-4 ring-orange-400 ring-offset-2 ring-offset-slate-950 scale-[1.02] shadow-xl" : "",
-                    ].join(" ")}
-                  >
-                    {current && (
-                      <span className="absolute -top-3 left-4 rounded-full bg-orange-500 px-3 py-0.5 text-xs font-bold uppercase tracking-wider text-white shadow-md">
-                        Now Serving
-                      </span>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className={`text-2xl font-bold ${s.text}`}>
-                        {formatTime12h(a.time)}
-                      </span>
-                      <span className={`inline-flex items-center gap-1.5 rounded-full ${s.bg} ${s.text} px-2.5 py-0.5 text-xs font-semibold border ${s.border}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
-                        {s.label}
-                      </span>
-                    </div>
-                    <p className={`text-lg font-semibold leading-tight ${s.text}`}>
-                      {a.patientName}
-                    </p>
-                    <div className={`text-sm ${s.text} opacity-80`}>
-                      <p className="truncate">
-                        {a.doctorName ? `Dr. ${a.doctorName}` : <span className="italic">Doctor not assigned</span>}
-                      </p>
-                      {a.doctorSpecialty && (
-                        <p className="text-xs opacity-70 truncate">{a.doctorSpecialty}</p>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <div
+                className="grid gap-2 h-full"
+                style={{
+                  // Auto-fit as many columns as fit, min card width 200px
+                  gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
+                  gridAutoRows: "minmax(0, 1fr)",
+                }}
+              >
+                {active.map((a) => {
+                  const s = statusStyle(a.status)
+                  const current = isCurrentAppointment(a, now, active)
+                  return (
+                    <article
+                      key={a.id}
+                      className={[
+                        "relative flex flex-col justify-between rounded-lg border border-l-4 px-3 py-2 min-h-0 overflow-hidden",
+                        s.bg,
+                        s.border,
+                        s.accent,
+                        current ? "ring-2 ring-orange-500 shadow-md" : "",
+                      ].join(" ")}
+                    >
+                      {current && (
+                        <span className="absolute top-1 right-1 rounded-full bg-orange-500 px-1.5 py-0 text-[9px] font-bold uppercase tracking-wider text-white shadow-sm">
+                          Now
+                        </span>
                       )}
-                    </div>
-                  </article>
-                )
-              })}
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className={`text-lg font-bold leading-tight ${s.text}`}>
+                          {formatTime12h(a.time)}
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full ${s.bg} ${s.text} px-1.5 py-0 text-[10px] font-semibold border ${s.border} shrink-0`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
+                          {s.label}
+                        </span>
+                      </div>
+                      <p className={`mt-0.5 text-sm font-semibold leading-tight truncate ${s.text}`}>
+                        {a.patientName}
+                      </p>
+                      <p className={`text-[11px] leading-tight truncate opacity-80 ${s.text}`}>
+                        {a.doctorName ? `Dr. ${a.doctorName}` : <em className="opacity-70">Doctor not assigned</em>}
+                        {a.doctorSpecialty ? ` · ${a.doctorSpecialty}` : ""}
+                      </p>
+                    </article>
+                  )
+                })}
+              </div>
             </div>
           )}
         </section>
 
         {/* Right 30% — Completed */}
-        <aside className="flex-[3] flex flex-col min-w-0 border-l border-slate-800 pl-6">
-          <h2 className="mb-3 text-xl font-semibold text-emerald-400">
-            Completed{" "}
-            <span className="text-slate-500 text-base font-normal">· {completed.length}</span>
+        <aside className="flex flex-col min-h-0 overflow-hidden border-l border-border pl-3">
+          <h2 className="mb-2 text-base font-semibold text-emerald-700 shrink-0">
+            Completed
+            <span className="ml-2 text-sm font-normal text-muted-foreground">· {completed.length}</span>
           </h2>
 
           {completed.length === 0 ? (
-            <EmptyPanel message="No completed visits yet today." muted />
+            <EmptyPanel message="No completed visits yet." muted />
           ) : (
-            <div className="flex flex-col gap-2 overflow-y-auto pr-1">
-              {completed.map((a) => {
-                const s = statusStyle(a.status)
-                return (
-                  <article
-                    key={a.id}
-                    className={`flex items-center justify-between rounded-lg border ${s.border} ${s.bg} p-3`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-sm font-semibold truncate ${s.text}`}>
-                        {a.patientName}
-                      </p>
-                      <p className={`text-xs opacity-70 truncate ${s.text}`}>
-                        {a.doctorName ? `Dr. ${a.doctorName}` : "—"}
-                      </p>
-                    </div>
-                    <div className="text-right ml-3 shrink-0">
-                      <p className={`text-sm font-bold ${s.text}`}>{formatTime12h(a.time)}</p>
-                      <p className="text-[10px] text-emerald-700 font-semibold uppercase tracking-wide">
-                        ✓ Done
-                      </p>
-                    </div>
-                  </article>
-                )
-              })}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <div
+                className="grid gap-1.5 h-full"
+                style={{
+                  gridAutoRows: "minmax(0, 1fr)",
+                }}
+              >
+                {completed.map((a) => {
+                  const s = statusStyle(a.status)
+                  return (
+                    <article
+                      key={a.id}
+                      className={`flex items-center justify-between rounded-md border ${s.border} ${s.bg} px-2.5 py-1.5 min-h-0 overflow-hidden`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-sm font-semibold truncate leading-tight ${s.text}`}>
+                          {a.patientName}
+                        </p>
+                        <p className={`text-[11px] opacity-70 truncate leading-tight ${s.text}`}>
+                          {a.doctorName ? `Dr. ${a.doctorName}` : "—"}
+                        </p>
+                      </div>
+                      <div className="text-right ml-2 shrink-0">
+                        <p className={`text-sm font-bold leading-tight ${s.text}`}>
+                          {formatTime12h(a.time)}
+                        </p>
+                        <p className="text-[9px] text-emerald-700 font-semibold uppercase tracking-wide leading-tight">
+                          ✓ Done
+                        </p>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
             </div>
           )}
         </aside>
       </main>
 
       {/* ── Footer / status line ───────────────────────────────────────── */}
-      <footer className="border-t border-slate-800 bg-slate-900 px-8 py-2 text-center text-xs text-slate-500">
-        Screen auto-updates every 15 seconds · For assistance please contact the reception desk
+      <footer className="shrink-0 border-t border-border bg-card px-6 py-1.5 text-center text-[11px] text-muted-foreground">
+        Screen auto-updates every 15 seconds · For assistance, please contact the reception desk
       </footer>
     </div>
   )
@@ -318,10 +329,10 @@ function StatusLegend() {
     { label: "No Show",     dot: "bg-gray-400" },
   ]
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-muted-foreground">
       {items.map((i) => (
-        <span key={i.label} className="flex items-center gap-1.5">
-          <span className={`h-2 w-2 rounded-full ${i.dot}`} />
+        <span key={i.label} className="flex items-center gap-1">
+          <span className={`h-1.5 w-1.5 rounded-full ${i.dot}`} />
           {i.label}
         </span>
       ))}
@@ -333,13 +344,13 @@ function EmptyPanel({ message, muted = false }: { message: string; muted?: boole
   return (
     <div
       className={[
-        "flex flex-1 items-center justify-center rounded-xl border-2 border-dashed",
+        "flex flex-1 items-center justify-center rounded-lg border-2 border-dashed",
         muted
-          ? "border-slate-800 bg-slate-900/30 text-slate-500"
-          : "border-slate-700 bg-slate-900/50 text-slate-400",
+          ? "border-border/60 bg-muted/30 text-muted-foreground"
+          : "border-border bg-muted/40 text-muted-foreground",
       ].join(" ")}
     >
-      <p className="text-lg">{message}</p>
+      <p className="text-sm">{message}</p>
     </div>
   )
 }
