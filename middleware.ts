@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/seed", "/api/temp-file", "/api/cron", "/api/whatsapp/webhook", "/privacy-policy"]
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/seed", "/api/temp-file", "/api/cron", "/api/whatsapp/webhook", "/privacy-policy", "/display", "/api/display"]
 
 /**
  * Verify a HS256 JWT using the Web Crypto API (Edge Runtime safe, no external deps).
