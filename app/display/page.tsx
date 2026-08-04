@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react"
 // ── Types ───────────────────────────────────────────────────────────────────
 type DisplayAppointment = {
   id: string
-  time: string       // "HH:mm"
+  time: string
   duration: number
   status: "scheduled" | "checked-in" | "in-progress" | "completed" | "cancelled" | "no-show"
   patientName: string
@@ -21,27 +21,27 @@ type DisplayPayload = {
   appointments: DisplayAppointment[]
 }
 
-// ── Status → colour palette (matches the app's appointment calendar exactly) ──
+// ── Status colour system (mirrors the app's calendar palette) ──────────────
 function statusStyle(status: DisplayAppointment["status"]) {
   switch (status) {
     case "scheduled":
-      return { bg: "bg-blue-50",    border: "border-blue-300",    text: "text-blue-900",    accent: "border-l-blue-500",    dot: "bg-blue-500",    label: "Scheduled" }
+      return { bg: "bg-blue-50",    border: "border-blue-200",    text: "text-blue-900",    accent: "border-l-blue-500",    dot: "bg-blue-500",    label: "Scheduled" }
     case "checked-in":
-      return { bg: "bg-purple-50",  border: "border-purple-300",  text: "text-purple-900",  accent: "border-l-purple-500",  dot: "bg-purple-500",  label: "Checked In" }
+      return { bg: "bg-purple-50",  border: "border-purple-200",  text: "text-purple-900",  accent: "border-l-purple-500",  dot: "bg-purple-500",  label: "Checked In" }
     case "in-progress":
-      return { bg: "bg-orange-50",  border: "border-orange-300",  text: "text-orange-900",  accent: "border-l-orange-500",  dot: "bg-orange-500",  label: "In Progress" }
+      return { bg: "bg-orange-50",  border: "border-orange-200",  text: "text-orange-900",  accent: "border-l-orange-500",  dot: "bg-orange-500",  label: "In Progress" }
     case "completed":
-      return { bg: "bg-emerald-50", border: "border-emerald-300", text: "text-emerald-900", accent: "border-l-emerald-500", dot: "bg-emerald-500", label: "Completed" }
+      return { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-900", accent: "border-l-emerald-500", dot: "bg-emerald-500", label: "Completed" }
     case "cancelled":
-      return { bg: "bg-red-50",     border: "border-red-300",     text: "text-red-900",     accent: "border-l-red-500",     dot: "bg-red-500",     label: "Cancelled" }
+      return { bg: "bg-red-50",     border: "border-red-200",     text: "text-red-900",     accent: "border-l-red-500",     dot: "bg-red-500",     label: "Cancelled" }
     case "no-show":
-      return { bg: "bg-gray-100",   border: "border-gray-300",    text: "text-gray-700",    accent: "border-l-gray-400",    dot: "bg-gray-400",    label: "No Show" }
+      return { bg: "bg-gray-100",   border: "border-gray-200",    text: "text-gray-700",    accent: "border-l-gray-400",    dot: "bg-gray-400",    label: "No Show" }
     default:
       return { bg: "bg-slate-50",   border: "border-slate-200",   text: "text-slate-800",   accent: "border-l-slate-400",   dot: "bg-slate-400",   label: status }
   }
 }
 
-// "17:00" → "5:00 PM"
+// ── Helpers ────────────────────────────────────────────────────────────────
 function formatTime12h(hhmm: string): string {
   if (!hhmm || !hhmm.includes(":")) return hhmm
   const [h, m] = hhmm.split(":").map(Number)
@@ -54,17 +54,12 @@ function formatTime12h(hhmm: string): string {
 function formatDateLong(iso: string): string {
   try {
     return new Date(iso + "T00:00:00").toLocaleDateString("en-PK", {
-      weekday: "long",
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
+      weekday: "long", day: "2-digit", month: "long", year: "numeric",
     })
-  } catch {
-    return iso
-  }
+  } catch { return iso }
 }
 
-// ── Live clock (updates every second in the browser) ───────────────────────
+// ── Hooks ──────────────────────────────────────────────────────────────────
 function useLiveClock() {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
@@ -74,7 +69,6 @@ function useLiveClock() {
   return now
 }
 
-// ── Auto-refresh appointments every 15s ────────────────────────────────────
 function useLiveData() {
   const [data, setData] = useState<DisplayPayload | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -87,9 +81,7 @@ function useLiveData() {
         .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
         .then((json: DisplayPayload) => {
           if (cancelled) return
-          setData(json)
-          setLastSync(new Date())
-          setError(null)
+          setData(json); setLastSync(new Date()); setError(null)
         })
         .catch((e) => {
           if (cancelled) return
@@ -98,29 +90,16 @@ function useLiveData() {
     }
     load()
     const interval = setInterval(load, 15_000)
-    return () => {
-      cancelled = true
-      clearInterval(interval)
-    }
+    return () => { cancelled = true; clearInterval(interval) }
   }, [])
 
   return { data, error, lastSync }
 }
 
-// ── Compute which appointment is "NOW" and which is "UP NEXT" ─────────────
-// NOW  = the in-progress appointment (or, if none, the imminent scheduled/
-//        checked-in one within ±15 min of the current time).
-// UP NEXT = the next scheduled/checked-in appointment after NOW in the
-//        chronological queue — this gets a blinking indicator so the
-//        patient in the waiting room knows to be ready.
-function getFocusedIds(
-  active: DisplayAppointment[],
-  now: Date
-): { currentId: string | null; upNextId: string | null } {
+// ── Compute NOW + UP NEXT ─────────────────────────────────────────────────
+function getFocusedIds(active: DisplayAppointment[], now: Date) {
   const queue = active
-    .filter(
-      (x) => x.status === "scheduled" || x.status === "checked-in" || x.status === "in-progress"
-    )
+    .filter((x) => ["scheduled", "checked-in", "in-progress"].includes(x.status))
     .sort((a, b) => a.time.localeCompare(b.time))
 
   const inProgress = queue.find((x) => x.status === "in-progress")
@@ -140,26 +119,20 @@ function getFocusedIds(
     if (imminent) currentId = imminent.id
   }
 
-  // UP NEXT = next scheduled/checked-in after the current one
   let upNextId: string | null = null
   const currentIdx = currentId ? queue.findIndex((x) => x.id === currentId) : -1
   for (let i = currentIdx + 1; i < queue.length; i++) {
-    if (queue[i].status === "scheduled" || queue[i].status === "checked-in") {
-      upNextId = queue[i].id
-      break
+    if (["scheduled", "checked-in"].includes(queue[i].status)) {
+      upNextId = queue[i].id; break
     }
   }
-  // If nothing is "current" and the first thing in queue isn't already
-  // marked as current, that first upcoming is up-next.
-  if (!upNextId && !currentId && queue.length > 0) {
-    upNextId = queue[0].id
-  }
+  if (!upNextId && !currentId && queue.length > 0) upNextId = queue[0].id
 
   return { currentId, upNextId }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Page — fixed height, no scrolling, matches the app's light theme
+// Page
 // ═══════════════════════════════════════════════════════════════════════════
 export default function DisplayBoardPage() {
   const now = useLiveClock()
@@ -177,8 +150,6 @@ export default function DisplayBoardPage() {
     }
   }, [data])
 
-  // Recompute focus (NOW / UP NEXT) every minute — depends on `now` too, but
-  // we don't need it to churn every second, so bucket by minute.
   const nowMinute = Math.floor(now.getTime() / 60_000)
   const { currentId, upNextId } = useMemo(
     () => getFocusedIds(active, now),
@@ -186,11 +157,7 @@ export default function DisplayBoardPage() {
     [active, nowMinute]
   )
 
-  const clockTime = now.toLocaleTimeString("en-PK", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  })
+  const clockTime = now.toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit", hour12: true })
   const clockDate = data ? formatDateLong(data.date) : ""
   const secondsSinceSync = lastSync
     ? Math.max(0, Math.floor((now.getTime() - lastSync.getTime()) / 1000))
@@ -201,23 +168,20 @@ export default function DisplayBoardPage() {
       className="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden"
       style={
         {
-          // Fluid typography — every text size scales with viewport width via
-          // clamp(min, preferred-vw, max). Reads well on a 720p monitor and
-          // a 4K TV without any breakpoint fiddling.
-          "--txt-h1":    "clamp(1.15rem, 2.1vw, 2.5rem)",
-          "--txt-clock": "clamp(2rem,   4.2vw, 5.5rem)",
-          "--txt-h2":    "clamp(0.9rem, 1.3vw, 1.5rem)",
-          "--txt-time":  "clamp(0.95rem, 1.4vw, 1.85rem)",
-          "--txt-name":  "clamp(0.85rem, 1.15vw, 1.45rem)",
-          "--txt-meta":  "clamp(0.65rem, 0.85vw, 1.05rem)",
-          "--txt-badge": "clamp(0.55rem, 0.72vw, 0.9rem)",
-          "--txt-body":  "clamp(0.7rem, 0.9vw, 1.05rem)",
-          "--txt-tiny":  "clamp(0.6rem, 0.72vw, 0.85rem)",
+          // Fluid typography — but with sensible caps so wide TVs don't
+          // blow up compact side-panel content.
+          "--txt-clock": "clamp(2rem, 3.6vw, 4.5rem)",
+          "--txt-h1":    "clamp(1.05rem, 1.7vw, 2rem)",
+          "--txt-h2":    "clamp(0.85rem, 1.1vw, 1.25rem)",
+          "--txt-time":  "clamp(0.95rem, 1.2vw, 1.5rem)",
+          "--txt-name":  "clamp(0.85rem, 1vw,   1.25rem)",
+          "--txt-meta":  "clamp(0.7rem,  0.8vw, 0.95rem)",
+          "--txt-body":  "clamp(0.72rem, 0.82vw, 0.95rem)",
         } as React.CSSProperties
       }
     >
       {/* ── Header ─────────────────────────────────────────────────────── */}
-      <header className="shrink-0 border-b border-border bg-card px-[clamp(1rem,2vw,2rem)] py-[clamp(0.5rem,1vw,1rem)] flex items-center justify-between gap-4">
+      <header className="shrink-0 border-b border-border bg-card px-6 py-3 flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h1
             style={{ fontSize: "var(--txt-h1)" }}
@@ -237,110 +201,87 @@ export default function DisplayBoardPage() {
           >
             {clockTime}
           </p>
-          <div
-            style={{ fontSize: "var(--txt-tiny)" }}
-            className="mt-1 flex items-center justify-end gap-1.5"
-          >
+          <div className="mt-1 flex items-center justify-end gap-1.5 text-[11px]">
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                error
-                  ? "bg-red-500"
-                  : secondsSinceSync !== null && secondsSinceSync < 30
-                  ? "bg-emerald-500 animate-pulse"
-                  : "bg-amber-500"
+                error ? "bg-red-500"
+                : secondsSinceSync !== null && secondsSinceSync < 30 ? "bg-emerald-500 animate-pulse"
+                : "bg-amber-500"
               }`}
             />
             <span className="text-muted-foreground">
-              {error
-                ? `Sync error: ${error}`
-                : lastSync
-                ? `Live · updated ${secondsSinceSync ?? 0}s ago`
+              {error ? `Sync error: ${error}`
+                : lastSync ? `Live · updated ${secondsSinceSync ?? 0}s ago`
                 : "Loading…"}
             </span>
           </div>
         </div>
       </header>
 
-      {/* ── Body (fills remaining height, never scrolls) ───────────────── */}
-      <main className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[70%_30%] gap-[clamp(0.5rem,1vw,1rem)] p-[clamp(0.5rem,1vw,1rem)] overflow-hidden">
+      {/* ── Body ───────────────────────────────────────────────────────── */}
+      <main className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[70%_30%] gap-4 p-4 overflow-hidden">
         {/* Left 70% — Active */}
         <section className="flex flex-col min-h-0 overflow-hidden">
-          <div className="mb-2 flex items-center justify-between gap-3 shrink-0">
+          <div className="mb-3 flex items-center justify-between gap-3 shrink-0">
             <h2
               style={{ fontSize: "var(--txt-h2)" }}
               className="font-semibold text-foreground"
             >
               Today&rsquo;s Appointments
-              <span
-                style={{ fontSize: "var(--txt-body)" }}
-                className="ml-2 font-normal text-muted-foreground"
-              >
-                · {active.length}
-              </span>
+              <span className="ml-2 font-normal text-muted-foreground">· {active.length}</span>
             </h2>
             <StatusLegend />
           </div>
 
           {active.length === 0 ? (
-            <EmptyPanel message={data === null ? "Loading appointments…" : "No active appointments for today."} />
+            <EmptyPanel
+              message={data === null ? "Loading appointments…" : "No active appointments for today."}
+            />
           ) : (
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <div
-                className="grid gap-2 h-full"
-                style={{
-                  // Auto-fit as many columns as fit, min card width 200px
-                  gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))",
-                  gridAutoRows: "minmax(0, 1fr)",
-                }}
-              >
-                {active.map((a) => {
-                  const s = statusStyle(a.status)
-                  const isNow = a.id === currentId
-                  const isUpNext = a.id === upNextId
-                  return (
-                    <article
-                      key={a.id}
-                      className={[
-                        "relative flex flex-col justify-between rounded-lg border border-l-4 px-3 py-2 min-h-0 overflow-hidden transition-all",
-                        s.bg,
-                        s.border,
-                        s.accent,
-                        isNow
-                          ? "ring-4 ring-orange-500 ring-offset-2 ring-offset-background shadow-[0_0_20px_rgba(249,115,22,0.55)] z-10"
-                          : "",
-                        isUpNext
-                          ? "ring-2 ring-sky-500 ring-offset-1 ring-offset-background shadow-md"
-                          : "",
-                      ].join(" ")}
-                    >
-                      {/* NOW badge — big, absolute, pulsing so it's unmissable */}
-                      {isNow && (
-                        <>
-                          {/* Pulsing outer glow — animate-ping fades + expands */}
-                          <span
-                            aria-hidden
-                            className="pointer-events-none absolute inset-0 rounded-lg ring-4 ring-orange-400 animate-ping opacity-30"
-                          />
-                          <span
-                            style={{ fontSize: "var(--txt-badge)" }}
-                            className="absolute -top-2 left-2 z-20 rounded-full bg-orange-500 px-2 py-0.5 font-extrabold uppercase tracking-wider text-white shadow-md flex items-center gap-1"
-                          >
-                            <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
-                            Now Serving
-                          </span>
-                        </>
-                      )}
-                      {/* UP NEXT badge — blinking to attract the patient's attention */}
-                      {isUpNext && (
-                        <span
-                          style={{ fontSize: "var(--txt-badge)" }}
-                          className="absolute -top-2 left-2 z-20 rounded-full bg-sky-500 px-2 py-0.5 font-extrabold uppercase tracking-wider text-white shadow animate-pulse flex items-center gap-1"
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                          Up Next — Please Get Ready
+            <div
+              className="flex-1 min-h-0 grid gap-3 overflow-hidden"
+              style={{
+                gridTemplateColumns: "repeat(auto-fit, minmax(min(240px, 100%), 1fr))",
+                gridAutoRows: "minmax(0, 1fr)",
+              }}
+            >
+              {active.map((a) => {
+                const s = statusStyle(a.status)
+                const isNow = a.id === currentId
+                const isUpNext = a.id === upNextId
+                return (
+                  <article
+                    key={a.id}
+                    className={[
+                      "relative flex flex-col rounded-xl border overflow-hidden bg-card min-h-0",
+                      s.border,
+                      isNow ? "ring-2 ring-orange-500 shadow-[0_0_18px_-2px_rgba(249,115,22,0.55)]" : "",
+                      isUpNext ? "ring-2 ring-sky-500 shadow-[0_0_14px_-4px_rgba(14,165,233,0.5)]" : "",
+                    ].join(" ")}
+                  >
+                    {/* Top ribbon — NOW SERVING or UP NEXT (inline, no clipping) */}
+                    {isNow && (
+                      <div className="flex items-center gap-1.5 bg-orange-500 px-3 py-1 text-white">
+                        <span className="relative flex h-2 w-2">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
                         </span>
-                      )}
+                        <span className="text-[10px] font-extrabold uppercase tracking-widest">
+                          Now Serving
+                        </span>
+                      </div>
+                    )}
+                    {isUpNext && (
+                      <div className="flex items-center gap-1.5 bg-sky-500 px-3 py-1 text-white animate-pulse">
+                        <span className="h-2 w-2 rounded-full bg-white" />
+                        <span className="text-[10px] font-extrabold uppercase tracking-widest">
+                          Up Next · Please Get Ready
+                        </span>
+                      </div>
+                    )}
 
+                    {/* Card body */}
+                    <div className={`flex-1 min-h-0 flex flex-col justify-between border-l-4 ${s.bg} ${s.accent} px-3 py-2.5`}>
                       <div className="flex items-baseline justify-between gap-2">
                         <span
                           style={{ fontSize: "var(--txt-time)" }}
@@ -349,8 +290,7 @@ export default function DisplayBoardPage() {
                           {formatTime12h(a.time)}
                         </span>
                         <span
-                          style={{ fontSize: "var(--txt-badge)" }}
-                          className={`inline-flex items-center gap-1 rounded-full ${s.bg} ${s.text} px-1.5 py-0 font-semibold border ${s.border} shrink-0`}
+                          className={`inline-flex items-center gap-1 rounded-full ${s.bg} ${s.text} px-1.5 py-0.5 text-[10px] font-semibold border ${s.border} shrink-0`}
                         >
                           <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />
                           {s.label}
@@ -358,112 +298,85 @@ export default function DisplayBoardPage() {
                       </div>
                       <p
                         style={{ fontSize: "var(--txt-name)" }}
-                        className={`mt-0.5 font-semibold leading-tight truncate ${s.text}`}
+                        className={`mt-1 font-semibold leading-tight truncate ${s.text}`}
                       >
                         {a.patientName}
                       </p>
                       <p
                         style={{ fontSize: "var(--txt-meta)" }}
-                        className={`leading-tight truncate opacity-80 ${s.text}`}
+                        className={`mt-0.5 leading-tight truncate opacity-75 ${s.text}`}
                       >
                         {a.doctorName ? `Dr. ${a.doctorName}` : <em className="opacity-70">Doctor not assigned</em>}
                         {a.doctorSpecialty ? ` · ${a.doctorSpecialty}` : ""}
                       </p>
-                    </article>
-                  )
-                })}
-              </div>
+                    </div>
+                  </article>
+                )
+              })}
             </div>
           )}
         </section>
 
-        {/* Right 30% — Completed */}
-        <aside className="flex flex-col min-h-0 overflow-hidden border-l border-border pl-[clamp(0.5rem,1vw,1rem)]">
-          <h2
-            style={{ fontSize: "var(--txt-h2)" }}
-            className="mb-2 font-semibold text-emerald-700 shrink-0"
-          >
-            Completed
-            <span
-              style={{ fontSize: "var(--txt-body)" }}
-              className="ml-2 font-normal text-muted-foreground"
+        {/* Right 30% — Completed (compact history sidebar) */}
+        <aside className="flex flex-col min-h-0 overflow-hidden rounded-xl border border-border bg-card">
+          <div className="shrink-0 border-b border-border px-3 py-2 flex items-baseline justify-between gap-2">
+            <h2
+              style={{ fontSize: "var(--txt-h2)" }}
+              className="font-semibold text-emerald-700"
             >
-              · {completed.length}
+              Completed
+            </h2>
+            <span className="text-xs font-medium text-muted-foreground">
+              {completed.length} today
             </span>
-          </h2>
+          </div>
 
           {completed.length === 0 ? (
-            <EmptyPanel message="No completed visits yet." muted />
+            <div className="flex-1 flex items-center justify-center p-4">
+              <p className="text-xs text-muted-foreground">No completed visits yet.</p>
+            </div>
           ) : (
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <div
-                className="grid gap-2 h-full"
-                style={{
-                  gridAutoRows: "minmax(0, 1fr)",
-                }}
-              >
-                {completed.map((a) => {
-                  const s = statusStyle(a.status)
-                  return (
-                    <article
-                      key={a.id}
-                      className={[
-                        "flex items-center justify-between gap-3 rounded-lg border border-l-4 px-3 py-2 min-h-0 overflow-hidden",
-                        s.bg,
-                        s.border,
-                        s.accent,
-                      ].join(" ")}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p
-                          style={{ fontSize: "var(--txt-name)" }}
-                          className={`font-semibold truncate leading-tight ${s.text}`}
-                        >
-                          {a.patientName}
-                        </p>
-                        <p
-                          style={{ fontSize: "var(--txt-meta)" }}
-                          className={`mt-0.5 opacity-75 truncate leading-tight ${s.text}`}
-                        >
-                          {a.doctorName ? `Dr. ${a.doctorName}` : "—"}
-                        </p>
-                      </div>
-                      <div className="text-right shrink-0 flex flex-col items-end gap-0.5">
-                        <p
-                          style={{ fontSize: "var(--txt-time)" }}
-                          className={`font-bold leading-tight ${s.text}`}
-                        >
-                          {formatTime12h(a.time)}
-                        </p>
-                        <span
-                          style={{ fontSize: "var(--txt-badge)" }}
-                          className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 px-1.5 py-0 font-semibold border border-emerald-200"
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                          Done
-                        </span>
-                      </div>
-                    </article>
-                  )
-                })}
-              </div>
+            <div
+              className="flex-1 min-h-0 grid p-2 gap-1.5 overflow-hidden"
+              style={{ gridAutoRows: "minmax(0, 1fr)" }}
+            >
+              {completed.map((a) => (
+                <article
+                  key={a.id}
+                  className="flex items-center gap-2 min-w-0 rounded-md border border-emerald-100 border-l-4 border-l-emerald-500 bg-emerald-50/60 px-2.5 py-1.5 overflow-hidden"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold text-emerald-900 truncate leading-tight">
+                      {a.patientName}
+                    </p>
+                    <p className="text-[11px] text-emerald-800/70 truncate leading-tight mt-0.5">
+                      {a.doctorName ? `Dr. ${a.doctorName}` : "—"}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right flex flex-col items-end gap-0.5">
+                    <span className="text-[12px] font-bold text-emerald-900 tabular-nums leading-none">
+                      {formatTime12h(a.time)}
+                    </span>
+                    <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider leading-none">
+                      ✓ Done
+                    </span>
+                  </div>
+                </article>
+              ))}
             </div>
           )}
         </aside>
       </main>
 
-      {/* ── Footer / status line ───────────────────────────────────────── */}
-      <footer
-        style={{ fontSize: "var(--txt-tiny)" }}
-        className="shrink-0 border-t border-border bg-card px-[clamp(1rem,2vw,2rem)] py-1.5 text-center text-muted-foreground"
-      >
+      {/* ── Footer ─────────────────────────────────────────────────────── */}
+      <footer className="shrink-0 border-t border-border bg-card px-6 py-1.5 text-center text-[11px] text-muted-foreground">
         Screen auto-updates every 15 seconds · For assistance, please contact the reception desk
       </footer>
     </div>
   )
 }
 
-// ── Small helper components ────────────────────────────────────────────────
+// ── Helper components ──────────────────────────────────────────────────────
 
 function StatusLegend() {
   const items = [
@@ -475,12 +388,9 @@ function StatusLegend() {
     { label: "No Show",     dot: "bg-gray-400" },
   ]
   return (
-    <div
-      style={{ fontSize: "var(--txt-tiny)" }}
-      className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-muted-foreground"
-    >
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
       {items.map((i) => (
-        <span key={i.label} className="flex items-center gap-1">
+        <span key={i.label} className="flex items-center gap-1.5">
           <span className={`h-1.5 w-1.5 rounded-full ${i.dot}`} />
           {i.label}
         </span>
@@ -489,17 +399,10 @@ function StatusLegend() {
   )
 }
 
-function EmptyPanel({ message, muted = false }: { message: string; muted?: boolean }) {
+function EmptyPanel({ message }: { message: string }) {
   return (
-    <div
-      className={[
-        "flex flex-1 items-center justify-center rounded-lg border-2 border-dashed",
-        muted
-          ? "border-border/60 bg-muted/30 text-muted-foreground"
-          : "border-border bg-muted/40 text-muted-foreground",
-      ].join(" ")}
-    >
-      <p style={{ fontSize: "var(--txt-body)" }}>{message}</p>
+    <div className="flex flex-1 items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/30 text-muted-foreground">
+      <p className="text-sm">{message}</p>
     </div>
   )
 }
