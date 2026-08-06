@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import Invoice from "@/lib/models/Invoice"
 import AuditLog from "@/lib/models/AuditLog"
-import { requirePermission } from "@/lib/auth"
+import { getRequestUser, userHasPermission } from "@/lib/auth"
 
 /**
  * POST /api/invoices/[id]/mark-refunded
@@ -27,9 +27,22 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const gate = await requirePermission(request, "billing.void")
-  if ("response" in gate) return gate.response
-  const { user } = gate
+  // Marking a refund as paid out is a cash-desk action: admin + manager (via
+  // billing.void) already have this; the accounts / cashier role also needs
+  // it since they physically hand the money back to the patient. Matrix
+  // permissions are NOT modified — this is a targeted role widening for the
+  // refund payout action only. Voiding invoices still remains billing.void.
+  const user = await getRequestUser(request)
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+  const isCashier = user.role === "accounts"
+  if (!userHasPermission(user, "billing.void") && !isCashier) {
+    return NextResponse.json(
+      { error: `Forbidden — your role (${user.role}) cannot mark refunds as paid out.` },
+      { status: 403 }
+    )
+  }
 
   await connectDB()
   const { id } = await params

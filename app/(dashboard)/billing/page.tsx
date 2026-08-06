@@ -85,7 +85,12 @@ export default function BillingPage() {
   const [collectingInvoice, setCollectingInvoice] = useState<Invoice | null>(null)
 
   const canCollect = hasPermission("billing.collect")
-  const canRefund = hasPermission("billing.void")
+  // Marking a refund as paid out is a cash-desk action. In addition to
+  // billing.void (admin + manager), the accounts / cashier role can do it
+  // too — they physically hand the money back to the patient. Matrix
+  // permissions are not changed; this is a targeted role widening that
+  // matches the server-side check in /api/invoices/[id]/mark-refunded.
+  const canRefund = hasPermission("billing.void") || currentUser?.role === "accounts"
 
   const unpaidInvoices = useMemo(() => {
     return invoices.filter((i) => {
