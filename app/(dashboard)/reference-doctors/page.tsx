@@ -38,9 +38,25 @@ import {
   Trash2,
   Loader2,
   UserRound,
+  CalendarRange,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { ReferenceDoctor } from "@/lib/types"
+
+type DateFilter = "total" | "month" | "custom"
+
+// Local "today" in YYYY-MM-DD (browser TZ — fine for a date-only filter)
+function todayYMD(): string {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${y}-${m}-${dd}`
+}
+
+function monthLabel(): string {
+  return new Date().toLocaleDateString("en-PK", { month: "long", year: "numeric" })
+}
 
 export default function ReferenceDoctorsPage() {
   const {
@@ -49,6 +65,7 @@ export default function ReferenceDoctorsPage() {
     addReferenceDoctor,
     updateReferenceDoctor,
     deleteReferenceDoctor,
+    appointments,
     currentUser,
   } = useStore()
 
@@ -60,6 +77,63 @@ export default function ReferenceDoctorsPage() {
   const [deleting, setDeleting] = useState<ReferenceDoctor | null>(null)
   const [deletingBusy, setDeletingBusy] = useState(false)
 
+  // ── Date-range filter for referral counts ────────────────────────────
+  const [dateFilter, setDateFilter] = useState<DateFilter>("total")
+  const [customFrom, setCustomFrom] = useState(todayYMD())
+  const [customTo, setCustomTo] = useState(todayYMD())
+
+  // Resolve the active range → null means "all-time"
+  const dateRange = useMemo(() => {
+    if (dateFilter === "total") return null
+    if (dateFilter === "month") {
+      const d = new Date()
+      const y = d.getFullYear()
+      const m = String(d.getMonth() + 1).padStart(2, "0")
+      const daysInMonth = new Date(y, d.getMonth() + 1, 0).getDate()
+      return {
+        from: `${y}-${m}-01`,
+        to: `${y}-${m}-${String(daysInMonth).padStart(2, "0")}`,
+      }
+    }
+    // custom
+    if (!customFrom || !customTo) return null
+    return { from: customFrom, to: customTo }
+  }, [dateFilter, customFrom, customTo])
+
+  // Compute per-referrer counts from the appointments store (case-insensitive
+  // match on the free-text `referral` field). Falls back to the API's
+  // all-time `referralCount` when no date filter is applied AND the local
+  // store hasn't loaded yet — keeps the initial render populated.
+  const countsByName = useMemo(() => {
+    const map = new Map<string, number>()
+    const inRange = (dateStr: string) => {
+      if (!dateRange) return true
+      return dateStr >= dateRange.from && dateStr <= dateRange.to
+    }
+    for (const a of appointments) {
+      const key = (a.referral ?? "").trim().toLowerCase()
+      if (!key) continue
+      if (!inRange(a.date)) continue
+      map.set(key, (map.get(key) ?? 0) + 1)
+    }
+    return map
+  }, [appointments, dateRange])
+
+  // Enrich each ref doctor with the filtered count
+  const enrichedRefs = useMemo(() => {
+    return referenceDoctors.map((r) => {
+      const localCount = countsByName.get(r.name.toLowerCase())
+      // For total mode with an empty local store, keep the API value; otherwise use local
+      const referralCount =
+        localCount !== undefined
+          ? localCount
+          : dateFilter === "total"
+          ? r.referralCount ?? 0
+          : 0
+      return { ...r, referralCount }
+    })
+  }, [referenceDoctors, countsByName, dateFilter])
+
   // Refresh once on mount so referral counts are up-to-date after new bookings
   useEffect(() => {
     fetchReferenceDoctors().catch(() => {/* boot fetch already handled it */})
@@ -67,8 +141,8 @@ export default function ReferenceDoctorsPage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return referenceDoctors
-    return referenceDoctors.filter(
+    if (!q) return enrichedRefs
+    return enrichedRefs.filter(
       (r) =>
         r.name.toLowerCase().includes(q) ||
         r.specialty.toLowerCase().includes(q) ||
@@ -76,9 +150,17 @@ export default function ReferenceDoctorsPage() {
         r.phone.includes(q) ||
         r.email.toLowerCase().includes(q)
     )
-  }, [referenceDoctors, search])
+  }, [enrichedRefs, search])
 
-  const totalReferrals = referenceDoctors.reduce((s, r) => s + (r.referralCount ?? 0), 0)
+  const totalReferrals = enrichedRefs.reduce((s, r) => s + r.referralCount, 0)
+  const rangeLabel =
+    dateFilter === "total"
+      ? "all-time"
+      : dateFilter === "month"
+      ? monthLabel()
+      : dateRange
+      ? `${dateRange.from} → ${dateRange.to}`
+      : "custom range"
 
   const handleDelete = async () => {
     if (!deleting) return
@@ -116,15 +198,76 @@ export default function ReferenceDoctorsPage() {
           <Users2 className="h-3.5 w-3.5" />
           {referenceDoctors.length} Reference Doctor{referenceDoctors.length !== 1 ? "s" : ""}
         </Badge>
-        <Badge variant="secondary" className="gap-1.5 py-1 px-2.5 bg-emerald-50 text-emerald-800 border-emerald-200">
+        <Badge
+          variant="secondary"
+          className="gap-1.5 py-1 px-2.5 bg-emerald-50 text-emerald-800 border-emerald-200"
+        >
           <UserRound className="h-3.5 w-3.5" />
-          {totalReferrals} Patient{totalReferrals !== 1 ? "s" : ""} referred (all-time)
+          {totalReferrals} Patient{totalReferrals !== 1 ? "s" : ""} referred · {rangeLabel}
         </Badge>
       </div>
 
-      {/* Search */}
+      {/* Filters — date range + text search */}
       <Card className="mb-4">
-        <CardContent className="p-3">
+        <CardContent className="p-3 flex flex-col gap-3">
+          {/* Date range chips + custom inputs */}
+          <div className="flex flex-wrap items-center gap-2">
+            <CalendarRange className="h-4 w-4 text-muted-foreground" />
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide mr-1">
+              Referrals in
+            </span>
+            {(["total", "month", "custom"] as const).map((mode) => {
+              const label =
+                mode === "total" ? "Total (all-time)"
+                : mode === "month" ? "This Month"
+                : "Custom Range"
+              const active = dateFilter === mode
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setDateFilter(mode)}
+                  className={`h-7 rounded-full border px-3 text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border bg-background text-foreground hover:bg-accent"
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
+
+            {dateFilter === "custom" && (
+              <>
+                <div className="flex items-center gap-1 ml-auto">
+                  <Label htmlFor="rd-from" className="text-xs text-muted-foreground">From</Label>
+                  <Input
+                    id="rd-from"
+                    type="date"
+                    value={customFrom}
+                    max={customTo}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="h-8 w-36 text-xs"
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  <Label htmlFor="rd-to" className="text-xs text-muted-foreground">To</Label>
+                  <Input
+                    id="rd-to"
+                    type="date"
+                    value={customTo}
+                    min={customFrom}
+                    max={todayYMD()}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    className="h-8 w-36 text-xs"
+                  />
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Text search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -162,6 +305,7 @@ export default function ReferenceDoctorsPage() {
               key={ref.id}
               ref={ref}
               canManage={canManage}
+              rangeLabel={rangeLabel}
               onEdit={() => setEditing(ref)}
               onDelete={() => setDeleting(ref)}
             />
@@ -229,11 +373,13 @@ export default function ReferenceDoctorsPage() {
 function RefDoctorCard({
   ref,
   canManage,
+  rangeLabel,
   onEdit,
   onDelete,
 }: {
   ref: ReferenceDoctor
   canManage: boolean
+  rangeLabel: string
   onEdit: () => void
   onDelete: () => void
 }) {
@@ -309,13 +455,13 @@ function RefDoctorCard({
         )}
       </CardContent>
 
-      {/* Footer — referral count */}
-      <div className="border-t border-border/60 bg-muted/30 px-4 py-2 flex items-center justify-between">
-        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-          Patients referred
+      {/* Footer — referral count for the active filter */}
+      <div className="border-t border-border/60 bg-muted/30 px-4 py-2 flex items-center justify-between gap-2">
+        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground truncate">
+          Referred · <span className="normal-case font-normal">{rangeLabel}</span>
         </span>
         <span
-          className={`text-sm font-bold tabular-nums ${
+          className={`text-sm font-bold tabular-nums shrink-0 ${
             count > 0 ? "text-emerald-700" : "text-muted-foreground"
           }`}
         >

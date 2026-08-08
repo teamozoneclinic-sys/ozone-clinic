@@ -29,6 +29,7 @@ import {
   Plus,
   Percent,
   Receipt,
+  UserRound,
 } from "lucide-react"
 import type { Appointment, TestCatalogItem } from "@/lib/types"
 import { getPKTDateString } from "@/lib/pkt"
@@ -290,6 +291,109 @@ function DoctorCombobox({
                 <div className="min-w-0">
                   <p className="font-medium truncate">{item.label}</p>
                   <p className="text-xs text-muted-foreground truncate">{item.sub}</p>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Referral Combobox ────────────────────────────────────────────────────
+// Free-text input + suggestion list from the saved Reference Doctors.
+// Value is always the string in the input — picking a suggestion just fills
+// the input with that doctor's name; typing a brand-new name is also fine.
+// UI mirrors DoctorCombobox for visual consistency.
+
+interface ReferralSuggestion {
+  id: string
+  name: string
+  sub: string
+}
+
+function ReferralCombobox({
+  suggestions,
+  value,
+  onChange,
+}: {
+  suggestions: ReferralSuggestion[]
+  value: string
+  onChange: (nextValue: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const filtered =
+    value.trim() === ""
+      ? suggestions
+      : suggestions.filter(
+          (s) =>
+            s.name.toLowerCase().includes(value.toLowerCase()) ||
+            s.sub.toLowerCase().includes(value.toLowerCase())
+        )
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [])
+
+  const handlePick = (s: ReferralSuggestion) => {
+    onChange(s.name)
+    setOpen(false)
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <div className="relative">
+        <UserRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <Input
+          value={value}
+          onChange={(e) => { onChange(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          placeholder="Who referred the patient?"
+          className="h-10 pl-9 pr-8"
+          autoComplete="off"
+        />
+        {value ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onChange("") }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            title="Clear"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : suggestions.length > 0 ? (
+          <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        ) : null}
+      </div>
+
+      {open && suggestions.length > 0 && (
+        <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-popover shadow-lg max-h-[200px] overflow-y-auto">
+          {filtered.length === 0 ? (
+            <p className="px-4 py-3 text-sm text-muted-foreground text-center">
+              No saved reference doctor matches — press Enter to keep typing.
+            </p>
+          ) : (
+            filtered.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handlePick(s)}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-accent transition-colors ${s.name === value ? "bg-accent/70" : ""}`}
+              >
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                  <UserRound className="h-3.5 w-3.5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-medium truncate">{s.name}</p>
+                  {s.sub && <p className="text-xs text-muted-foreground truncate">{s.sub}</p>}
                 </div>
               </button>
             ))
@@ -748,31 +852,22 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
               {/* Referral | Notes */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="apt-referral" className="text-sm font-medium">
+                  <Label className="text-sm font-medium">
                     Referred By <span className="text-xs font-normal text-muted-foreground">(Optional)</span>
                   </Label>
-                  {/* Native <datalist> — offers the saved Reference Doctors as
-                      suggestions while still accepting any free-text entry.
-                      The submitted value is unchanged (whatever the user
-                      typed / picked), so downstream storage stays identical. */}
-                  <Input
-                    id="apt-referral"
+                  {/* Custom combobox — same visual pattern as the Doctor picker.
+                      Suggests saved Reference Doctors but still accepts any
+                      free-text entry. Whatever ends up in the input is what
+                      gets stored, so downstream behaviour is unchanged. */}
+                  <ReferralCombobox
                     value={referral}
-                    onChange={(e) => setReferral(e.target.value)}
-                    placeholder="Who referred the patient?"
-                    className="h-10"
-                    list="reference-doctors-suggestions"
-                    autoComplete="off"
+                    onChange={setReferral}
+                    suggestions={referenceDoctors.map((r) => ({
+                      id: r.id,
+                      name: r.name,
+                      sub: [r.specialty, r.hospital].filter(Boolean).join(" · "),
+                    }))}
                   />
-                  <datalist id="reference-doctors-suggestions">
-                    {referenceDoctors.map((r) => (
-                      <option key={r.id} value={r.name}>
-                        {r.specialty || r.hospital
-                          ? `${r.specialty}${r.specialty && r.hospital ? " · " : ""}${r.hospital}`
-                          : undefined}
-                      </option>
-                    ))}
-                  </datalist>
                   {referenceDoctors.length > 0 && (
                     <p className="text-[11px] text-muted-foreground">
                       Suggestions from {referenceDoctors.length} saved reference doctor
