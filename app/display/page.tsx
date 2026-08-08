@@ -403,7 +403,7 @@ function CompletedRow({ appt, accentClass }: { appt: DisplayAppointment; accentC
           {appt.patientName}
         </p>
         <p className="text-[11px] text-muted-foreground truncate leading-tight mt-0.5">
-          {appt.doctorName ? `Dr. ${appt.doctorName}` : "—"}
+          {appt.doctorName ? `${appt.doctorName}` : "—"}
         </p>
       </div>
       <div className="shrink-0 flex items-center gap-1">
