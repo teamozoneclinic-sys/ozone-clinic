@@ -434,7 +434,7 @@ function ProcedurePicker({ onAdd }: { onAdd: (p: ProcedureEntry) => void }) {
 // ─── Main Modal ────────────────────────────────────────────────────────────
 
 export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalProps) {
-  const { patients, doctors, addAppointment, hasPermission } = useStore()
+  const { patients, doctors, addAppointment, hasPermission, referenceDoctors } = useStore()
   const [patientSearch, setPatientSearch] = useState("")
   const [patientId, setPatientId] = useState("")
   const [doctorId, setDoctorId] = useState("")
@@ -751,13 +751,34 @@ export function AddAppointmentModal({ open, onOpenChange }: AddAppointmentModalP
                   <Label htmlFor="apt-referral" className="text-sm font-medium">
                     Referred By <span className="text-xs font-normal text-muted-foreground">(Optional)</span>
                   </Label>
+                  {/* Native <datalist> — offers the saved Reference Doctors as
+                      suggestions while still accepting any free-text entry.
+                      The submitted value is unchanged (whatever the user
+                      typed / picked), so downstream storage stays identical. */}
                   <Input
                     id="apt-referral"
                     value={referral}
                     onChange={(e) => setReferral(e.target.value)}
                     placeholder="Who referred the patient?"
                     className="h-10"
+                    list="reference-doctors-suggestions"
+                    autoComplete="off"
                   />
+                  <datalist id="reference-doctors-suggestions">
+                    {referenceDoctors.map((r) => (
+                      <option key={r.id} value={r.name}>
+                        {r.specialty || r.hospital
+                          ? `${r.specialty}${r.specialty && r.hospital ? " · " : ""}${r.hospital}`
+                          : undefined}
+                      </option>
+                    ))}
+                  </datalist>
+                  {referenceDoctors.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground">
+                      Suggestions from {referenceDoctors.length} saved reference doctor
+                      {referenceDoctors.length !== 1 ? "s" : ""} — or type a new name.
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="apt-notes" className="text-sm font-medium">Notes</Label>

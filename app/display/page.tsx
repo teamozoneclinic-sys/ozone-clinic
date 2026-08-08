@@ -381,7 +381,7 @@ function QueueCard({
       >
         {appt.doctorName ? (
           <>
-            Dr. {appt.doctorName}
+            {appt.doctorName}
             {appt.doctorSpecialty ? ` · ${appt.doctorSpecialty}` : ""}
           </>
         ) : (

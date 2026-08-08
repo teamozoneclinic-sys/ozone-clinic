@@ -21,6 +21,7 @@ import type {
   AuditLogEntry,
   Permission,
   ClinicInfo,
+  ReferenceDoctor,
 } from "./types"
 import { ROLE_PERMISSIONS, DEFAULT_CLINIC_INFO } from "./constants"
 import { getPKTDateString } from "./pkt"
@@ -59,6 +60,7 @@ interface StoreState {
   invoices: Invoice[]
   testCatalog: TestCatalogItem[]
   auditLog: AuditLogEntry[]
+  referenceDoctors: ReferenceDoctor[]
 
   // Mutations
   addPatient: (data: Omit<Patient, "id" | "createdAt" | "updatedAt" | "medicalHistory" | "documents">) => Promise<void>
@@ -90,6 +92,12 @@ interface StoreState {
   ) => Promise<Invoice>
   voidInvoice: (invoiceId: string, reason: string) => Promise<Invoice>
   markInvoiceRefunded: (invoiceId: string, notes?: string, reference?: string) => Promise<Invoice>
+  // Reference doctors (external referrers) — CRUD is admin/manager only,
+  // server-side enforced. List is fetched at boot alongside other data.
+  fetchReferenceDoctors: () => Promise<void>
+  addReferenceDoctor: (data: Partial<Omit<ReferenceDoctor, "id" | "createdAt" | "updatedAt" | "referralCount">>) => Promise<ReferenceDoctor>
+  updateReferenceDoctor: (id: string, data: Partial<Omit<ReferenceDoctor, "id" | "createdAt" | "updatedAt" | "referralCount">>) => Promise<ReferenceDoctor>
+  deleteReferenceDoctor: (id: string) => Promise<void>
   createTreatment: (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">) => Promise<Treatment>
   updateTreatment: (id: string, data: Partial<Omit<Treatment, "id" | "createdAt" | "updatedAt">> & { customProcedures?: { name: string; amount: number }[]; newTestIds?: string[] }) => Promise<{ treatment: Treatment; invoice: Invoice | null }>
   updateAppointmentStatus: (appointmentId: string, status: Appointment["status"]) => Promise<void>
@@ -137,6 +145,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [testCatalog, setTestCatalog] = useState<TestCatalogItem[]>([])
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([])
   const [clinicSettings, setClinicSettings] = useState<ClinicInfo>(DEFAULT_CLINIC_INFO)
+  const [referenceDoctors, setReferenceDoctors] = useState<ReferenceDoctor[]>([])
 
   // ── Fetch all data ────────────────────────────────────────────────────
   // Audit logs are deliberately NOT in this initial load — they grow large
@@ -144,7 +153,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const fetchAll = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [meRes, patientsRes, doctorsRes, appointmentsRes, treatmentsRes, invoicesRes, catalogRes, clinicRes] =
+      const [meRes, patientsRes, doctorsRes, appointmentsRes, treatmentsRes, invoicesRes, catalogRes, clinicRes, refDocsRes] =
         await Promise.all([
           apiFetch<{ user: User }>("/api/auth/me"),
           apiFetch<{ data: Patient[] }>("/api/patients"),
@@ -154,6 +163,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           apiFetch<{ data: Invoice[] }>("/api/invoices"),
           apiFetch<{ data: TestCatalogItem[] }>("/api/catalog"),
           apiFetch<{ data: ClinicInfo }>("/api/clinic-settings"),
+          // Reference doctors — non-critical, defensively caught so a failure
+          // here can never block the app boot for existing users.
+          apiFetch<{ data: ReferenceDoctor[] }>("/api/reference-doctors").catch(() => ({ data: [] })),
         ])
       setCurrentUser(meRes.user)
       setPatients(patientsRes.data)
@@ -163,6 +175,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setInvoices(invoicesRes.data)
       setTestCatalog(catalogRes.data)
       setClinicSettings(clinicRes.data)
+      setReferenceDoctors(refDocsRes.data)
     } catch (err) {
       console.error("Store fetch error:", err)
     } finally {
@@ -394,6 +407,55 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     []
   )
+
+  // ─── Reference doctors CRUD ──────────────────────────────────────────
+  // Fully additive — none of these mutate any existing collection or field
+  // on Appointments / Doctors / Patients. Safe to call without side effects
+  // on any other part of the system.
+  const fetchReferenceDoctors = useCallback(async () => {
+    try {
+      const res = await apiFetch<{ data: ReferenceDoctor[] }>("/api/reference-doctors")
+      setReferenceDoctors(res.data)
+    } catch (err) {
+      console.error("Failed to fetch reference doctors:", err)
+    }
+  }, [])
+
+  const addReferenceDoctor = useCallback(
+    async (
+      data: Partial<Omit<ReferenceDoctor, "id" | "createdAt" | "updatedAt" | "referralCount">>
+    ): Promise<ReferenceDoctor> => {
+      const res = await apiFetch<{ data: ReferenceDoctor }>("/api/reference-doctors", {
+        method: "POST",
+        body: JSON.stringify(data),
+      })
+      setReferenceDoctors((prev) => [...prev, res.data].sort((a, b) => a.name.localeCompare(b.name)))
+      return res.data
+    },
+    []
+  )
+
+  const updateReferenceDoctor = useCallback(
+    async (
+      id: string,
+      data: Partial<Omit<ReferenceDoctor, "id" | "createdAt" | "updatedAt" | "referralCount">>
+    ): Promise<ReferenceDoctor> => {
+      const res = await apiFetch<{ data: ReferenceDoctor }>(`/api/reference-doctors/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      })
+      setReferenceDoctors((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, ...res.data } : r)).sort((a, b) => a.name.localeCompare(b.name))
+      )
+      return res.data
+    },
+    []
+  )
+
+  const deleteReferenceDoctor = useCallback(async (id: string) => {
+    await apiFetch(`/api/reference-doctors/${id}`, { method: "DELETE" })
+    setReferenceDoctors((prev) => prev.filter((r) => r.id !== id))
+  }, [])
 
   const createTreatment = useCallback(
     async (data: Omit<Treatment, "id" | "createdAt" | "updatedAt">): Promise<Treatment> => {
@@ -656,6 +718,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         invoices,
         testCatalog,
         auditLog,
+        referenceDoctors,
+        fetchReferenceDoctors,
+        addReferenceDoctor,
+        updateReferenceDoctor,
+        deleteReferenceDoctor,
         addPatient,
         updatePatient,
         deletePatient,

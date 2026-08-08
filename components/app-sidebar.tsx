@@ -30,6 +30,7 @@ import {
   FlaskConical,
   UserRound,
   MessageCircle,
+  Users2,
 } from "lucide-react"
 import type { Permission } from "@/lib/types"
 
@@ -55,6 +56,10 @@ const financeNav: NavItem[] = [
 
 const adminNav: NavItem[] = [
   { title: "Doctors", href: "/doctors", icon: UserRound, permission: "doctors.view" },
+  // Reference Doctors — visible to anyone with appointments.view (they need it
+  // for the "Referred By" picker when booking). CRUD is server-gated to
+  // admin/manager separately.
+  { title: "Reference Doctors", href: "/reference-doctors", icon: Users2, permission: "appointments.view" },
   { title: "WA Bookings", href: "/appointment-requests", icon: MessageCircle, permission: "appointments.view" },
   { title: "Settings", href: "/settings", icon: Settings, permission: "settings.view" },
   { title: "Audit Log", href: "/audit", icon: ScrollText, permission: "audit.view" },

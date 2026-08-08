@@ -163,6 +163,22 @@ export interface Doctor {
   avatar?: string
 }
 
+/** External referring doctor — populates the "Referred By" suggestions when
+ *  booking a new appointment. `referralCount` is computed server-side. */
+export interface ReferenceDoctor {
+  id: string
+  name: string
+  phone: string
+  email: string
+  specialty: string
+  hospital: string
+  notes: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  referralCount?: number
+}
+
 export interface DoctorSchedule {
   day: string
   startTime: string
