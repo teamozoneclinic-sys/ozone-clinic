@@ -48,6 +48,7 @@ import {
   Save,
   X,
   Loader2,
+  UserRound,
 } from "lucide-react"
 import { AddAppointmentModal } from "@/components/add-appointment-modal"
 import { toast } from "sonner"
@@ -827,6 +828,19 @@ function AppointmentDetailContent({
               </p>
             </div>
           </Link>
+        )}
+
+        {/* Referred By — captured at booking time; hidden if empty */}
+        {appointment.referral && appointment.referral.trim() && (
+          <div className="rounded-lg border border-border/60 bg-card p-3">
+            <div className="mb-1.5 flex items-center gap-2">
+              <UserRound className="h-3.5 w-3.5 text-muted-foreground" />
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Referred By
+              </p>
+            </div>
+            <p className="text-sm">{appointment.referral}</p>
+          </div>
         )}
 
         {/* Notes */}
