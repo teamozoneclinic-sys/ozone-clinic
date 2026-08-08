@@ -830,18 +830,27 @@ function AppointmentDetailContent({
           </Link>
         )}
 
-        {/* Referred By — captured at booking time; hidden if empty */}
-        {appointment.referral && appointment.referral.trim() && (
-          <div className="rounded-lg border border-border/60 bg-card p-3">
-            <div className="mb-1.5 flex items-center gap-2">
-              <UserRound className="h-3.5 w-3.5 text-muted-foreground" />
-              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                Referred By
-              </p>
+        {/* Referred By — always rendered so the slot appears consistently
+            across every appointment status. Older appointments booked before
+            this field was captured show a "—" placeholder instead of hiding. */}
+        {(() => {
+          const referrer = (appointment.referral ?? "").trim()
+          return (
+            <div className="rounded-lg border border-border/60 bg-card p-3">
+              <div className="mb-1.5 flex items-center gap-2">
+                <UserRound className="h-3.5 w-3.5 text-muted-foreground" />
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Referred By
+                </p>
+              </div>
+              {referrer ? (
+                <p className="text-sm">{referrer}</p>
+              ) : (
+                <p className="text-sm italic text-muted-foreground">Not recorded</p>
+              )}
             </div>
-            <p className="text-sm">{appointment.referral}</p>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Notes */}
         {(appointment.notes || appointment.receptionNotes || appointment.doctorNotes) && (
