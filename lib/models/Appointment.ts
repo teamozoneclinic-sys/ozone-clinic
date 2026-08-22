@@ -7,7 +7,7 @@ export interface IAppointment extends Document {
   date: string
   time: string
   duration: number
-  status: "scheduled" | "checked-in" | "in-progress" | "completed" | "cancelled" | "no-show"
+  status: "scheduled" | "seated" | "checked-in" | "in-progress" | "completed" | "cancelled" | "no-show"
   type: string
   notes: string
   receptionNotes: string
@@ -29,7 +29,7 @@ const AppointmentSchema = new Schema<IAppointment>(
     duration: { type: Number, default: 30 },
     status: {
       type: String,
-      enum: ["scheduled", "checked-in", "in-progress", "completed", "cancelled", "no-show"],
+      enum: ["scheduled", "seated", "checked-in", "in-progress", "completed", "cancelled", "no-show"],
       default: "scheduled",
     },
     type: { type: String, default: "" },

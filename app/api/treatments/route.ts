@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
                 balance: newTotal - (invoice.paidAmount ?? 0),
                 status: (invoice.paidAmount ?? 0) > 0 ? "partially-paid" : "unpaid",
               },
-              { new: true }
+              { returnDocument: "after" }
             )
           }
         }

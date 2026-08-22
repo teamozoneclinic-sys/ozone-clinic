@@ -11,7 +11,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   await connectDB()
   const { id } = await params
   const body = await request.json()
-  const item = await TestCatalog.findByIdAndUpdate(id, body, { new: true })
+  const item = await TestCatalog.findByIdAndUpdate(id, body, { returnDocument: "after" })
   if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 })
   return NextResponse.json({ data: item.toJSON() })
 }

@@ -56,7 +56,7 @@ export async function POST(
     const patient = await Patient.findByIdAndUpdate(
       id,
       { $push: { documents: newDoc } },
-      { new: true }
+      { returnDocument: "after" }
     )
     if (!patient) return NextResponse.json({ error: "Patient not found" }, { status: 404 })
 
@@ -92,7 +92,7 @@ export async function DELETE(
     const patient = await Patient.findByIdAndUpdate(
       id,
       { $pull: { documents: { id: docId } } },
-      { new: true }
+      { returnDocument: "after" }
     )
     if (!patient) return NextResponse.json({ error: "Patient not found" }, { status: 404 })
 

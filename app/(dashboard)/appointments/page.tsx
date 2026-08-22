@@ -74,6 +74,8 @@ function getStatusStyle(status: Appointment["status"]) {
   switch (status) {
     case "scheduled":
       return "bg-blue-50 border-l-4 border-l-blue-500 text-blue-900 hover:bg-blue-100"
+    case "seated":
+      return "bg-amber-50 border-l-4 border-l-amber-500 text-amber-900 hover:bg-amber-100"
     case "checked-in":
       return "bg-purple-50 border-l-4 border-l-purple-500 text-purple-900 hover:bg-purple-100"
     case "in-progress":
@@ -92,12 +94,13 @@ function getStatusStyle(status: Appointment["status"]) {
 // Legend rows — single source of truth for the swatch + label shown above
 // the calendar. Keep the dot colours in sync with getStatusStyle().
 const STATUS_LEGEND: { status: Appointment["status"]; label: string; dot: string }[] = [
-  { status: "scheduled",   label: "Scheduled",   dot: "bg-blue-500" },
-  { status: "checked-in",  label: "Checked In",  dot: "bg-purple-500" },
-  { status: "in-progress", label: "In Progress", dot: "bg-orange-500" },
-  { status: "completed",   label: "Completed",   dot: "bg-emerald-500" },
-  { status: "cancelled",   label: "Cancelled",   dot: "bg-red-500" },
-  { status: "no-show",     label: "No Show",     dot: "bg-gray-400" },
+  { status: "scheduled",   label: "Scheduled",     dot: "bg-blue-500" },
+  { status: "seated",      label: "Seated",        dot: "bg-amber-500" },
+  { status: "checked-in",  label: "Check In Now",  dot: "bg-purple-500" },
+  { status: "in-progress", label: "In Progress",   dot: "bg-orange-500" },
+  { status: "completed",   label: "Completed",     dot: "bg-emerald-500" },
+  { status: "cancelled",   label: "Cancelled",     dot: "bg-red-500" },
+  { status: "no-show",     label: "No Show",       dot: "bg-gray-400" },
 ]
 
 // "17:00" → "5:00 PM"
@@ -699,15 +702,19 @@ function AppointmentDetailContent({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(["scheduled", "checked-in", "in-progress", "completed", "no-show", "cancelled"] as const).map((s) => (
-                  <SelectItem key={s} value={s} className="capitalize text-xs">
-                    <span className="inline-flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full ${STATUS_LEGEND.find((l) => l.status === s)?.dot ?? "bg-gray-400"}`} />
-                      {s.replace(/-/g, " ")}
-                      {s === "cancelled" && <span className="text-[10px] text-muted-foreground">(cannot be undone)</span>}
-                    </span>
-                  </SelectItem>
-                ))}
+                {(["scheduled", "seated", "checked-in", "in-progress", "completed", "no-show", "cancelled"] as const).map((s) => {
+                  const legend = STATUS_LEGEND.find((l) => l.status === s)
+                  const label = legend?.label ?? s.replace(/-/g, " ")
+                  return (
+                    <SelectItem key={s} value={s} className="text-xs">
+                      <span className="inline-flex items-center gap-2">
+                        <span className={`h-2 w-2 rounded-full ${legend?.dot ?? "bg-gray-400"}`} />
+                        {label}
+                        {s === "cancelled" && <span className="text-[10px] text-muted-foreground">(cannot be undone)</span>}
+                      </span>
+                    </SelectItem>
+                  )
+                })}
               </SelectContent>
             </Select>
           )}

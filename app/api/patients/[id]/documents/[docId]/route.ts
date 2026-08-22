@@ -44,7 +44,7 @@ export async function PATCH(
     const patient = await Patient.findOneAndUpdate(
       { _id: id, "documents.id": docId },
       { $set: update },
-      { new: true }
+      { returnDocument: "after" }
     )
     if (!patient) {
       return NextResponse.json(

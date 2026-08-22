@@ -45,7 +45,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const updated = await Invoice.findByIdAndUpdate(
     id,
     { lineItems: allLineItems, totalAmount: newTotal, balance: newBalance, status: newStatus },
-    { new: true }
+    { returnDocument: "after" }
   )
 
   await AuditLog.create({

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 
 // ── Types ───────────────────────────────────────────────────────────────────
-type Status = "scheduled" | "checked-in" | "in-progress" | "completed" | "cancelled" | "no-show"
+type Status = "scheduled" | "seated" | "checked-in" | "in-progress" | "completed" | "cancelled" | "no-show"
 
 type DisplayAppointment = {
   id: string
@@ -79,8 +79,10 @@ function useLiveData() {
 }
 
 // ── Column theme system (each column has its own colour tokens) ────────────
+type ColumnKey = "scheduled" | "seated" | "checked-in" | "in-progress" | "completed"
+
 type ColumnTheme = {
-  key: "scheduled" | "checked-in" | "in-progress" | "completed"
+  key: ColumnKey
   title: string
   bg: string           // subtle tinted background for the column
   headerBar: string    // top accent bar on the column
@@ -102,8 +104,18 @@ const COLUMNS: ColumnTheme[] = [
     countText: "text-blue-800",
   },
   {
+    key: "seated",
+    title: "Seated",
+    bg: "bg-amber-50/40",
+    headerBar: "bg-amber-500",
+    titleText: "text-amber-800",
+    cardAccent: "border-l-amber-500",
+    countBg: "bg-amber-100",
+    countText: "text-amber-800",
+  },
+  {
     key: "checked-in",
-    title: "Checked In",
+    title: "Please Proceed Inside",
     bg: "bg-purple-50/40",
     headerBar: "bg-purple-500",
     titleText: "text-purple-800",
@@ -149,17 +161,24 @@ export default function DisplayBoardPage() {
     const byTimeDesc = (a: DisplayAppointment, b: DisplayAppointment) =>
       b.time.localeCompare(a.time)
     return {
-      scheduled:   all.filter((a) => a.status === "scheduled").sort(byTimeAsc),
+      scheduled:    all.filter((a) => a.status === "scheduled").sort(byTimeAsc),
+      seated:       all.filter((a) => a.status === "seated").sort(byTimeAsc),
       "checked-in": all.filter((a) => a.status === "checked-in").sort(byTimeAsc),
       "in-progress": all.filter((a) => a.status === "in-progress").sort(byTimeAsc),
-      completed:   all.filter((a) => a.status === "completed").sort(byTimeDesc), // newest done first
+      completed:    all.filter((a) => a.status === "completed").sort(byTimeDesc), // newest done first
     } as const
   }, [data])
 
-  // "Up Next" = the first checked-in patient; falls back to first scheduled
-  // if the waiting room is empty.
+  // "Up Next" = the first patient in the Check In Now column; falls back to
+  // the first Seated (in the room, waiting) and finally the first Scheduled
+  // when the room is empty.
   const upNextId = useMemo(() => {
-    return buckets["checked-in"][0]?.id ?? buckets.scheduled[0]?.id ?? null
+    return (
+      buckets["checked-in"][0]?.id ??
+      buckets.seated[0]?.id ??
+      buckets.scheduled[0]?.id ??
+      null
+    )
   }, [buckets])
 
   const clockTime = now.toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit", hour12: true })
@@ -231,7 +250,7 @@ export default function DisplayBoardPage() {
       </header>
 
       {/* ── Body: 4 columns ────────────────────────────────────────────── */}
-      <main className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 p-3 overflow-hidden">
+      <main className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 p-3 overflow-hidden">
         {COLUMNS.map((col) => (
           <BoardColumn
             key={col.key}
@@ -294,7 +313,8 @@ function BoardColumn({
           <EmptyState
             message={
               theme.key === "scheduled"   ? "No upcoming appointments."
-              : theme.key === "checked-in" ? "Waiting room is empty."
+              : theme.key === "seated"    ? "No patients seated in the waiting area."
+              : theme.key === "checked-in" ? "Nobody being called right now."
               : theme.key === "in-progress" ? "No consultations in progress."
               : "No completed visits yet."
             }
@@ -416,7 +436,7 @@ function CompletedRow({ appt, accentClass }: { appt: DisplayAppointment; accentC
   )
 }
 
-// ── Card badge logic — SCHEDULED / UP NEXT / WAITING / NOW SERVING ────────
+// ── Card badge logic — SCHEDULED / SEATED / UP NEXT / CHECK IN NOW / NOW SERVING
 function getCardBadge(
   columnKey: ColumnTheme["key"],
   isUpNext: boolean
@@ -425,8 +445,13 @@ function getCardBadge(
     return { text: "Now Serving", className: "bg-orange-500 text-white", pulseDot: true }
   }
   if (columnKey === "checked-in") {
+    // Every patient in this column has been called to reception — this IS the
+    // active-call state, so the pill itself is the call-out.
+    return { text: "Check In Now", className: "bg-purple-500 text-white", pulseDot: true }
+  }
+  if (columnKey === "seated") {
     if (isUpNext) return { text: "Up Next", className: "bg-orange-500 text-white", pulseDot: true }
-    return { text: "Waiting", className: "bg-slate-200 text-slate-700" }
+    return { text: "Seated", className: "bg-amber-500 text-white" }
   }
   if (columnKey === "scheduled") {
     if (isUpNext) return { text: "Up Next", className: "bg-orange-500 text-white", pulseDot: true }

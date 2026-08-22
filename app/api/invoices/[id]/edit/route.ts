@@ -81,7 +81,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const updated = await Invoice.findByIdAndUpdate(
     id,
     { lineItems, totalAmount, balance, refundDue, status },
-    { new: true }
+    { returnDocument: "after" }
   )
 
   try {

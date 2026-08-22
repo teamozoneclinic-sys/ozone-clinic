@@ -34,7 +34,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     if (fromId !== toId) reassignment = { fromId, toId }
   }
 
-  const patient = await Patient.findByIdAndUpdate(id, body, { new: true, runValidators: true })
+  const patient = await Patient.findByIdAndUpdate(id, body, { returnDocument: "after", runValidators: true })
   if (!patient) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   if (reassignment) {

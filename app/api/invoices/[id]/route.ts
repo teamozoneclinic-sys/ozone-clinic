@@ -21,7 +21,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   await connectDB()
   const { id } = await params
   const body = await request.json()
-  const invoice = await Invoice.findByIdAndUpdate(id, body, { new: true, runValidators: true })
+  const invoice = await Invoice.findByIdAndUpdate(id, body, { returnDocument: "after", runValidators: true })
   if (!invoice) return NextResponse.json({ error: "Not found" }, { status: 404 })
   return NextResponse.json({ data: invoice.toJSON() })
 }

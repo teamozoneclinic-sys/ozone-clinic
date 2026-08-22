@@ -50,7 +50,7 @@ export async function PUT(
   }
 
   const ref = await ReferenceDoctor.findByIdAndUpdate(id, update, {
-    new: true,
+    returnDocument: "after",
     runValidators: true,
   })
   if (!ref) return NextResponse.json({ error: "Not found" }, { status: 404 })

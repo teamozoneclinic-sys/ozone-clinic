@@ -29,7 +29,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
   // Separate custom procedures from the treatment fields
   const { customProcedures, newTestIds, ...treatmentFields } = body
-  const treatment = await Treatment.findByIdAndUpdate(id, treatmentFields, { new: true, runValidators: true })
+  const treatment = await Treatment.findByIdAndUpdate(id, treatmentFields, { returnDocument: "after", runValidators: true })
   if (!treatment) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   // Append new procedures/tests to the invoice if provided
@@ -71,7 +71,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
               totalAmount: newTotal,
               balance: newTotal - (invoice.paidAmount ?? 0),
             },
-            { new: true }
+            { returnDocument: "after" }
           )
         }
       }

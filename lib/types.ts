@@ -55,6 +55,7 @@ export interface PatientDocument {
 
 export type AppointmentStatus =
   | "scheduled"
+  | "seated"
   | "checked-in"
   | "in-progress"
   | "completed"

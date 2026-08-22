@@ -190,7 +190,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     })
   }
 
-  const appointment = await Appointment.findByIdAndUpdate(id, body, { new: true, runValidators: true })
+  const appointment = await Appointment.findByIdAndUpdate(id, body, { returnDocument: "after", runValidators: true })
   if (!appointment) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   if (body.status === "cancelled") {

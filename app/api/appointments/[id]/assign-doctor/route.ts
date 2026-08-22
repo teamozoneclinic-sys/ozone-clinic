@@ -66,7 +66,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const updated = await Invoice.findByIdAndUpdate(
         existingInvoice._id,
         { lineItems, totalAmount, balance, status, doctorId },
-        { new: true }
+        { returnDocument: "after" }
       )
       invoiceJSON = updated?.toJSON() ?? null
     } else {
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const updated = await Invoice.findByIdAndUpdate(
         existingInvoice._id,
         { doctorId },
-        { new: true }
+        { returnDocument: "after" }
       )
       invoiceJSON = updated?.toJSON() ?? null
     }
