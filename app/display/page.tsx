@@ -92,56 +92,62 @@ type ColumnTheme = {
   countText: string
 }
 
+// Brand palette applied per column — mapped left→right to the swatch strip
+// the user provided: Pink → Blue → Yellow → Red → Green.
+// Kept as arbitrary Tailwind classes so opacity modifiers still work
+// (bg-[#hex]/10 for the very subtle column tint, /20 for the count pill).
+// Brand palette — columns rendered as SOLID filled blocks so the colours
+// dominate visually. White cards float on top of the coloured background,
+// text/count contrast is either white (on dark bases) or dark ink (on yellow).
+// Lighter design — subtle tinted column backgrounds with the brand colour
+// carried in the top accent bar, card left-borders, and count pill.
+// Colours per user's mapping: Yellow → Seated, Pink → Please Proceed Inside,
+// Blue → In Progress, Green → Completed.
 const COLUMNS: ColumnTheme[] = [
-  {
-    key: "scheduled",
-    title: "Scheduled",
-    bg: "bg-blue-50/40",
-    headerBar: "bg-blue-500",
-    titleText: "text-blue-800",
-    cardAccent: "border-l-blue-500",
-    countBg: "bg-blue-100",
-    countText: "text-blue-800",
-  },
+  // "Scheduled" is intentionally omitted from the patient-facing LCD.
   {
     key: "seated",
     title: "Seated",
-    bg: "bg-amber-50/40",
-    headerBar: "bg-amber-500",
-    titleText: "text-amber-800",
-    cardAccent: "border-l-amber-500",
-    countBg: "bg-amber-100",
-    countText: "text-amber-800",
+    // Yellow #EEB92B
+    bg: "bg-[#EEB92B]/25",
+    headerBar: "bg-[#EEB92B]",
+    titleText: "text-[#8B6D00]", // darker olive for readable heading
+    cardAccent: "border-l-[#EEB92B]",
+    countBg: "bg-[#EEB92B]/40",
+    countText: "text-[#8B6D00]",
   },
   {
     key: "checked-in",
     title: "Please Proceed Inside",
-    bg: "bg-purple-50/40",
-    headerBar: "bg-purple-500",
-    titleText: "text-purple-800",
-    cardAccent: "border-l-purple-500",
-    countBg: "bg-purple-100",
-    countText: "text-purple-800",
+    // Pink #FD9DCD
+    bg: "bg-[#FD9DCD]/30",
+    headerBar: "bg-[#FD9DCD]",
+    titleText: "text-[#B21E70]", // darker pink for readable heading
+    cardAccent: "border-l-[#FD9DCD]",
+    countBg: "bg-[#FD9DCD]/50",
+    countText: "text-[#B21E70]",
   },
   {
     key: "in-progress",
     title: "In Progress",
-    bg: "bg-orange-50/50",
-    headerBar: "bg-orange-500",
-    titleText: "text-orange-800",
-    cardAccent: "border-l-orange-500",
-    countBg: "bg-orange-100",
-    countText: "text-orange-800",
+    // Blue #174D89
+    bg: "bg-[#174D89]/20",
+    headerBar: "bg-[#174D89]",
+    titleText: "text-[#174D89]",
+    cardAccent: "border-l-[#174D89]",
+    countBg: "bg-[#174D89]/25",
+    countText: "text-[#174D89]",
   },
   {
     key: "completed",
     title: "Completed",
-    bg: "bg-emerald-50/40",
-    headerBar: "bg-emerald-500",
-    titleText: "text-emerald-800",
-    cardAccent: "border-l-emerald-500",
-    countBg: "bg-emerald-100",
-    countText: "text-emerald-800",
+    // Green #35A74F
+    bg: "bg-[#35A74F]/20",
+    headerBar: "bg-[#35A74F]",
+    titleText: "text-[#35A74F]",
+    cardAccent: "border-l-[#35A74F]",
+    countBg: "bg-[#35A74F]/25",
+    countText: "text-[#35A74F]",
   },
 ]
 
@@ -170,13 +176,12 @@ export default function DisplayBoardPage() {
   }, [data])
 
   // "Up Next" = the first patient in the Check In Now column; falls back to
-  // the first Seated (in the room, waiting) and finally the first Scheduled
-  // when the room is empty.
+  // the first Seated patient if the check-in call queue is empty.
+  // (Scheduled patients aren't shown on the LCD, so no fallback further.)
   const upNextId = useMemo(() => {
     return (
       buckets["checked-in"][0]?.id ??
       buckets.seated[0]?.id ??
-      buckets.scheduled[0]?.id ??
       null
     )
   }, [buckets])
@@ -250,7 +255,7 @@ export default function DisplayBoardPage() {
       </header>
 
       {/* ── Body: 4 columns ────────────────────────────────────────────── */}
-      <main className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 p-3 overflow-hidden">
+      <main className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 p-3 overflow-hidden">
         {COLUMNS.map((col) => (
           <BoardColumn
             key={col.key}
