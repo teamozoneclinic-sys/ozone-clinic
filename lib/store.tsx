@@ -66,6 +66,11 @@ interface StoreState {
   // Auth
   currentUser: User | null
   isLoading: boolean
+  // True while the four bulk collections (patients + appointments + invoices
+  // + treatments) are still hydrating in Phase 2. The dashboard shell uses
+  // this to keep the loading spinner up so users never see a half-populated
+  // app on first login.
+  isHydrating: boolean
   hasPermission: (permission: Permission) => boolean
   setCurrentRole: (role: Role) => void // legacy compat
 
@@ -154,6 +159,7 @@ const StoreContext = createContext<StoreState | undefined>(undefined)
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [isHydrating, setIsHydrating] = useState(true)
   const [patients, setPatients] = useState<Patient[]>([])
   const [doctors, setDoctors] = useState<Doctor[]>([])
   const [appointments, setAppointments] = useState<Appointment[]>([])
@@ -192,6 +198,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // and are only viewed on /audit. The audit page fetches them on demand.
   const fetchAll = useCallback(async () => {
     setIsLoading(true)
+    setIsHydrating(true)
     try {
       // ─── Phase 1 — small, essential payloads ───────────────────────────
       const [meRes, doctorsRes, catalogRes, clinicRes, refDocsRes] = await Promise.all([
@@ -211,40 +218,47 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     } catch (err) {
       console.error("Store phase-1 fetch error:", err)
     } finally {
-      // Unblock the UI — pages can render immediately. Phase 2's data will
-      // stream in over the next moment; pages already render gracefully
-      // with empty arrays.
+      // Phase 1 done — auth + doctors + catalog are available. Any component
+      // that only needs those can render now. The dashboard shell, however,
+      // waits on `isHydrating` (below) so users never see empty tables.
       setIsLoading(false)
     }
 
-    // ─── Phase 2 — bulk collections, fired in parallel, non-blocking ────
-    // Each response also seeds lastSyncedRef so the delta poll starts from
-    // a good cursor. mergeById preserves any records the user just created
+    // ─── Phase 2 — bulk collections, fired in parallel ─────────────────
+    // Each response seeds lastSyncedRef so the delta poll starts from a
+    // good cursor. mergeById preserves any records the user just created
     // (via a mutation setState) that landed BEFORE the full response.
-    apiFetch<{ data: Patient[]; serverTime?: string }>("/api/patients")
-      .then((r) => {
-        setPatients((prev) => mergeById(prev, r.data))
-        if (r.serverTime) lastSyncedRef.current.patients = r.serverTime
-      })
-      .catch((e) => console.error("Patients initial load failed:", e))
-    apiFetch<{ data: Appointment[]; serverTime?: string }>("/api/appointments")
-      .then((r) => {
-        setAppointments((prev) => mergeById(prev, r.data))
-        if (r.serverTime) lastSyncedRef.current.appointments = r.serverTime
-      })
-      .catch((e) => console.error("Appointments initial load failed:", e))
-    apiFetch<{ data: Invoice[]; serverTime?: string }>("/api/invoices")
-      .then((r) => {
-        setInvoices((prev) => mergeById(prev, r.data))
-        if (r.serverTime) lastSyncedRef.current.invoices = r.serverTime
-      })
-      .catch((e) => console.error("Invoices initial load failed:", e))
-    apiFetch<{ data: Treatment[]; serverTime?: string }>("/api/treatments")
-      .then((r) => {
-        setTreatments((prev) => mergeById(prev, r.data))
-        if (r.serverTime) lastSyncedRef.current.treatments = r.serverTime
-      })
-      .catch((e) => console.error("Treatments initial load failed:", e))
+    // Wrapped in allSettled so we can flip `isHydrating` off exactly when
+    // all four collections have resolved (regardless of individual failures).
+    Promise.allSettled([
+      apiFetch<{ data: Patient[]; serverTime?: string }>("/api/patients")
+        .then((r) => {
+          setPatients((prev) => mergeById(prev, r.data))
+          if (r.serverTime) lastSyncedRef.current.patients = r.serverTime
+        })
+        .catch((e) => console.error("Patients initial load failed:", e)),
+      apiFetch<{ data: Appointment[]; serverTime?: string }>("/api/appointments")
+        .then((r) => {
+          setAppointments((prev) => mergeById(prev, r.data))
+          if (r.serverTime) lastSyncedRef.current.appointments = r.serverTime
+        })
+        .catch((e) => console.error("Appointments initial load failed:", e)),
+      apiFetch<{ data: Invoice[]; serverTime?: string }>("/api/invoices")
+        .then((r) => {
+          setInvoices((prev) => mergeById(prev, r.data))
+          if (r.serverTime) lastSyncedRef.current.invoices = r.serverTime
+        })
+        .catch((e) => console.error("Invoices initial load failed:", e)),
+      apiFetch<{ data: Treatment[]; serverTime?: string }>("/api/treatments")
+        .then((r) => {
+          setTreatments((prev) => mergeById(prev, r.data))
+          if (r.serverTime) lastSyncedRef.current.treatments = r.serverTime
+        })
+        .catch((e) => console.error("Treatments initial load failed:", e)),
+    ]).finally(() => {
+      // Everything is in — the dashboard shell can now unveil the UI.
+      setIsHydrating(false)
+    })
   }, [])
 
   // Fetch audit log on demand (used by the Audit page).
@@ -386,14 +400,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       procedures?: { name: string; amount: number }[]
       discount?: { description: string; amount: number }
     }) => {
-      const res = await apiFetch<{ data: Appointment }>("/api/appointments", {
-        method: "POST",
-        body: JSON.stringify(data),
-      })
+      const res = await apiFetch<{ data: Appointment; invoice: Invoice | null }>(
+        "/api/appointments",
+        { method: "POST", body: JSON.stringify(data) }
+      )
       setAppointments((prev) => [res.data, ...prev])
-      // Refresh invoices to capture the auto-created one
-      const invRes = await apiFetch<{ data: Invoice[] }>("/api/invoices")
-      setInvoices(invRes.data)
+      // Server returns the auto-created invoice in the same response — just
+      // prepend it locally. No full /api/invoices refetch needed (saves ~1 s
+      // per booking on the perceived time). Any invoices created concurrently
+      // by other users are still picked up by the 3-s delta poll.
+      if (res.invoice) {
+        setInvoices((prev) => [res.invoice!, ...prev])
+      }
       logAuditEntry(
         "Appointment Created",
         "Appointment",
@@ -834,6 +852,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       value={{
         currentUser,
         isLoading,
+        isHydrating,
         hasPermission,
         setCurrentRole,
         patients,

@@ -68,6 +68,12 @@ export async function POST(request: NextRequest) {
     invoiceId: "",
   })
 
+  // Returned to the client so it can prepend the auto-created invoice to
+  // local state without a second round-trip. Stays null when no billable
+  // items exist (e.g. procedure-less booking with no doctor).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let createdInvoice: any = null
+
   // Auto-create invoice: consultation fee (when a doctor is set) + optional procedures + optional discount
   try {
     // Doctor is optional — only look one up when an id was supplied
@@ -147,6 +153,8 @@ export async function POST(request: NextRequest) {
       // Link invoice back to appointment
       await Appointment.findByIdAndUpdate(appointment._id, { invoiceId: invoice._id.toString() })
       appointment.invoiceId = invoice._id.toString()
+      // Serialize once so the client can prepend it locally — no full refetch needed.
+      createdInvoice = invoice.toJSON()
 
       // Audit the discount — sensitive financial action
       if (discountApplied) {
@@ -201,7 +209,13 @@ export async function POST(request: NextRequest) {
     console.error("[WhatsApp] Appointment confirmation failed:", err)
   })
 
-  return NextResponse.json({ data: appointment.toJSON() }, { status: 201 })
+  // Include `invoice` in the response so the client can prepend it into
+  // local state without refetching the entire invoice list — saves ~1 s
+  // per booking. Old clients that ignore this extra field still work.
+  return NextResponse.json(
+    { data: appointment.toJSON(), invoice: createdInvoice },
+    { status: 201 }
+  )
 }
 
 function formatTime12h(time: string): string {

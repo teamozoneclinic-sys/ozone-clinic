@@ -6,9 +6,14 @@ import { StoreProvider, useStore } from "@/lib/store"
 import { Loader2 } from "lucide-react"
 
 function DashboardContent({ children }: { children: React.ReactNode }) {
-  const { isLoading } = useStore()
+  const { isLoading, isHydrating } = useStore()
 
-  if (isLoading) {
+  // Keep the spinner up until BOTH phases finish:
+  //   • isLoading   — Phase 1 (auth, doctors, catalog, clinic, referrers)
+  //   • isHydrating — Phase 2 (patients, appointments, invoices, treatments)
+  // Prevents the "empty tables" flash right after login while background
+  // collections are still streaming in.
+  if (isLoading || isHydrating) {
     return (
       <div className="flex flex-1 items-center justify-center min-h-screen">
         <div className="flex flex-col items-center gap-3 text-muted-foreground">
