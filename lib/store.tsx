@@ -6,6 +6,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useRef,
   type ReactNode,
 } from "react"
 import type {
@@ -41,6 +42,22 @@ async function apiFetch<T = unknown>(
     throw new Error(err.error || `Request failed: ${res.status}`)
   }
   return res.json()
+}
+
+// Upsert `incoming` into `prev` by id — used when merging delta-poll payloads
+// so that:
+//   • server-updated records replace their local copy,
+//   • server-created records are prepended (newest-first, matches the API sort),
+//   • records untouched by the delta stay exactly as they were locally.
+// Deletes are not conveyed by delta polling (rare, admin-only) — a manual
+// page refresh catches those, same as before.
+function mergeById<T extends { id: string }>(prev: T[], incoming: T[]): T[] {
+  if (incoming.length === 0) return prev
+  const incomingIds = new Set(incoming.map((x) => x.id))
+  const untouched = prev.filter((p) => !incomingIds.has(p.id))
+  // Incoming first (newest updates surface at the top of the list — matches
+  // the .sort({ createdAt: -1 }) / .sort({ date: -1 }) API contract).
+  return [...incoming, ...untouched]
 }
 
 // ─── Store interface ─────────────────────────────────────────────────────────
@@ -147,40 +164,87 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [clinicSettings, setClinicSettings] = useState<ClinicInfo>(DEFAULT_CLINIC_INFO)
   const [referenceDoctors, setReferenceDoctors] = useState<ReferenceDoctor[]>([])
 
+  // Per-collection delta cursors. Populated by every full/delta fetch and
+  // sent back as `?since=<iso>` on the next poll. Kept in a ref so that
+  // updating them never re-renders the tree.
+  const lastSyncedRef = useRef<{
+    patients: string | null
+    appointments: string | null
+    invoices: string | null
+    treatments: string | null
+  }>({ patients: null, appointments: null, invoices: null, treatments: null })
+
   // ── Fetch all data ────────────────────────────────────────────────────
+  // Two-phase load so the app becomes usable as fast as possible:
+  //
+  //   Phase 1 (awaited, unblocks isLoading): auth + doctors + catalog +
+  //     clinic settings + reference doctors. All small; needed to render
+  //     the shell and enforce permissions.
+  //
+  //   Phase 2 (fired in the background, does NOT block isLoading): the
+  //     four heavy collections — patients, appointments, invoices,
+  //     treatments. Each one populates its state as soon as it lands, so
+  //     the UI "fills in" instead of waiting for the slowest request.
+  //     Merged via mergeById to preserve any mutations the user performed
+  //     in the tiny window before Phase 2 completed.
+  //
   // Audit logs are deliberately NOT in this initial load — they grow large
   // and are only viewed on /audit. The audit page fetches them on demand.
   const fetchAll = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [meRes, patientsRes, doctorsRes, appointmentsRes, treatmentsRes, invoicesRes, catalogRes, clinicRes, refDocsRes] =
-        await Promise.all([
-          apiFetch<{ user: User }>("/api/auth/me"),
-          apiFetch<{ data: Patient[] }>("/api/patients"),
-          apiFetch<{ data: Doctor[] }>("/api/doctors"),
-          apiFetch<{ data: Appointment[] }>("/api/appointments"),
-          apiFetch<{ data: Treatment[] }>("/api/treatments"),
-          apiFetch<{ data: Invoice[] }>("/api/invoices"),
-          apiFetch<{ data: TestCatalogItem[] }>("/api/catalog"),
-          apiFetch<{ data: ClinicInfo }>("/api/clinic-settings"),
-          // Reference doctors — non-critical, defensively caught so a failure
-          // here can never block the app boot for existing users.
-          apiFetch<{ data: ReferenceDoctor[] }>("/api/reference-doctors").catch(() => ({ data: [] })),
-        ])
+      // ─── Phase 1 — small, essential payloads ───────────────────────────
+      const [meRes, doctorsRes, catalogRes, clinicRes, refDocsRes] = await Promise.all([
+        apiFetch<{ user: User }>("/api/auth/me"),
+        apiFetch<{ data: Doctor[] }>("/api/doctors"),
+        apiFetch<{ data: TestCatalogItem[] }>("/api/catalog"),
+        apiFetch<{ data: ClinicInfo }>("/api/clinic-settings"),
+        // Reference doctors — non-critical, defensively caught so a failure
+        // here can never block the app boot for existing users.
+        apiFetch<{ data: ReferenceDoctor[] }>("/api/reference-doctors").catch(() => ({ data: [] })),
+      ])
       setCurrentUser(meRes.user)
-      setPatients(patientsRes.data)
       setDoctors(doctorsRes.data)
-      setAppointments(appointmentsRes.data)
-      setTreatments(treatmentsRes.data)
-      setInvoices(invoicesRes.data)
       setTestCatalog(catalogRes.data)
       setClinicSettings(clinicRes.data)
       setReferenceDoctors(refDocsRes.data)
     } catch (err) {
-      console.error("Store fetch error:", err)
+      console.error("Store phase-1 fetch error:", err)
     } finally {
+      // Unblock the UI — pages can render immediately. Phase 2's data will
+      // stream in over the next moment; pages already render gracefully
+      // with empty arrays.
       setIsLoading(false)
     }
+
+    // ─── Phase 2 — bulk collections, fired in parallel, non-blocking ────
+    // Each response also seeds lastSyncedRef so the delta poll starts from
+    // a good cursor. mergeById preserves any records the user just created
+    // (via a mutation setState) that landed BEFORE the full response.
+    apiFetch<{ data: Patient[]; serverTime?: string }>("/api/patients")
+      .then((r) => {
+        setPatients((prev) => mergeById(prev, r.data))
+        if (r.serverTime) lastSyncedRef.current.patients = r.serverTime
+      })
+      .catch((e) => console.error("Patients initial load failed:", e))
+    apiFetch<{ data: Appointment[]; serverTime?: string }>("/api/appointments")
+      .then((r) => {
+        setAppointments((prev) => mergeById(prev, r.data))
+        if (r.serverTime) lastSyncedRef.current.appointments = r.serverTime
+      })
+      .catch((e) => console.error("Appointments initial load failed:", e))
+    apiFetch<{ data: Invoice[]; serverTime?: string }>("/api/invoices")
+      .then((r) => {
+        setInvoices((prev) => mergeById(prev, r.data))
+        if (r.serverTime) lastSyncedRef.current.invoices = r.serverTime
+      })
+      .catch((e) => console.error("Invoices initial load failed:", e))
+    apiFetch<{ data: Treatment[]; serverTime?: string }>("/api/treatments")
+      .then((r) => {
+        setTreatments((prev) => mergeById(prev, r.data))
+        if (r.serverTime) lastSyncedRef.current.treatments = r.serverTime
+      })
+      .catch((e) => console.error("Treatments initial load failed:", e))
   }, [])
 
   // Fetch audit log on demand (used by the Audit page).
@@ -594,40 +658,101 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setAppointments((prev) => prev.map((a) => (a.id === appointmentId ? res.data : a)))
   }, [])
 
-  // ── Live data refresh (polls patients + appointments + treatments + invoices) ─
-  // Patients are included so records created server-side (e.g. by the WhatsApp
-  // bot) appear in the store without a full page reload. The patients-list
-  // payload is slim — heavy `documents` and `medicalHistory` arrays are
-  // stripped server-side and fetched on demand from the patient detail page.
+  // ── Live data refresh — FULL pull of patients + appointments + treatments + invoices ─
+  // Kept for backward compatibility with callers that explicitly want a
+  // fresh, cursor-resetting full fetch (e.g. the patient detail page after
+  // uploading a document, or internal mutation-follow-ups). Resets the
+  // delta cursor so the very next delta poll picks up from THIS moment.
+  // The patients-list payload is slim — heavy `documents` and
+  // `medicalHistory` arrays are stripped server-side and fetched on demand
+  // from the patient detail page.
   const refreshLiveData = useCallback(async () => {
     try {
       const [patientsRes, appointmentsRes, treatmentsRes, invoicesRes] = await Promise.all([
-        apiFetch<{ data: Patient[] }>("/api/patients"),
-        apiFetch<{ data: Appointment[] }>("/api/appointments"),
-        apiFetch<{ data: Treatment[] }>("/api/treatments"),
-        apiFetch<{ data: Invoice[] }>("/api/invoices"),
+        apiFetch<{ data: Patient[]; serverTime?: string }>("/api/patients"),
+        apiFetch<{ data: Appointment[]; serverTime?: string }>("/api/appointments"),
+        apiFetch<{ data: Treatment[]; serverTime?: string }>("/api/treatments"),
+        apiFetch<{ data: Invoice[]; serverTime?: string }>("/api/invoices"),
       ])
       setPatients(patientsRes.data)
       setAppointments(appointmentsRes.data)
       setTreatments(treatmentsRes.data)
       setInvoices(invoicesRes.data)
+      if (patientsRes.serverTime) lastSyncedRef.current.patients = patientsRes.serverTime
+      if (appointmentsRes.serverTime) lastSyncedRef.current.appointments = appointmentsRes.serverTime
+      if (treatmentsRes.serverTime) lastSyncedRef.current.treatments = treatmentsRes.serverTime
+      if (invoicesRes.serverTime) lastSyncedRef.current.invoices = invoicesRes.serverTime
     } catch {
       // Silent — background refresh failures must not disrupt the UI
     }
   }, [])
 
-  // Poll every 30 s; also refresh immediately when the tab regains focus
-  useEffect(() => {
-    const poll = () => {
-      if (document.visibilityState === "visible") refreshLiveData()
+  // ── Delta poll — the "eye-blink" live sync ────────────────────────────
+  // Every 3 s (while the tab is visible), ask each of the four live
+  // collections for records that changed since our last cursor. Payloads
+  // are typically empty ({data:[], serverTime:"..."}), so the roundtrip is
+  // trivial. When something DID change (another user booked an
+  // appointment, collected a payment, uploaded a doc, etc.) the affected
+  // record is merged into local state by id — no full reload, no flicker,
+  // no lost mutations in flight.
+  //
+  // Safety net: if the cursor is null (Phase 2 hasn't stamped it yet, or
+  // an earlier delta failed to return serverTime), we fall back to a full
+  // fetch for that collection this tick, and stamp the cursor from its
+  // serverTime for subsequent ticks.
+  const deltaPoll = useCallback(async () => {
+    const buildUrl = (base: string, cursor: string | null) =>
+      cursor ? `${base}?since=${encodeURIComponent(cursor)}` : base
+    try {
+      const [pRes, aRes, iRes, tRes] = await Promise.all([
+        apiFetch<{ data: Patient[]; serverTime?: string }>(
+          buildUrl("/api/patients", lastSyncedRef.current.patients)
+        ).catch(() => null),
+        apiFetch<{ data: Appointment[]; serverTime?: string }>(
+          buildUrl("/api/appointments", lastSyncedRef.current.appointments)
+        ).catch(() => null),
+        apiFetch<{ data: Invoice[]; serverTime?: string }>(
+          buildUrl("/api/invoices", lastSyncedRef.current.invoices)
+        ).catch(() => null),
+        apiFetch<{ data: Treatment[]; serverTime?: string }>(
+          buildUrl("/api/treatments", lastSyncedRef.current.treatments)
+        ).catch(() => null),
+      ])
+      if (pRes) {
+        if (pRes.data.length > 0) setPatients((prev) => mergeById(prev, pRes.data))
+        if (pRes.serverTime) lastSyncedRef.current.patients = pRes.serverTime
+      }
+      if (aRes) {
+        if (aRes.data.length > 0) setAppointments((prev) => mergeById(prev, aRes.data))
+        if (aRes.serverTime) lastSyncedRef.current.appointments = aRes.serverTime
+      }
+      if (iRes) {
+        if (iRes.data.length > 0) setInvoices((prev) => mergeById(prev, iRes.data))
+        if (iRes.serverTime) lastSyncedRef.current.invoices = iRes.serverTime
+      }
+      if (tRes) {
+        if (tRes.data.length > 0) setTreatments((prev) => mergeById(prev, tRes.data))
+        if (tRes.serverTime) lastSyncedRef.current.treatments = tRes.serverTime
+      }
+    } catch {
+      // Silent — background poll failures must not disrupt the UI.
     }
-    const timer = setInterval(poll, 30_000)
-    document.addEventListener("visibilitychange", poll)
+  }, [])
+
+  // Poll every 3 s while the tab is visible; also fire immediately when
+  // the tab regains focus so a returning user sees fresh data at once.
+  useEffect(() => {
+    if (typeof document === "undefined") return
+    const tick = () => {
+      if (document.visibilityState === "visible") deltaPoll()
+    }
+    const timer = setInterval(tick, 3_000)
+    document.addEventListener("visibilitychange", tick)
     return () => {
       clearInterval(timer)
-      document.removeEventListener("visibilitychange", poll)
+      document.removeEventListener("visibilitychange", tick)
     }
-  }, [refreshLiveData])
+  }, [deltaPoll])
 
   const updateClinicSettings = useCallback(async (data: Partial<ClinicInfo>) => {
     const res = await apiFetch<{ data: ClinicInfo }>("/api/clinic-settings", {

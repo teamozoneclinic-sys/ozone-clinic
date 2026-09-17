@@ -13,13 +13,25 @@ export async function GET(request: NextRequest) {
   await connectDB()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let query: any = {}
+  const query: any = {}
   if (user.role === "doctor" && user.doctorId) {
     // Return patients assigned to this doctor OR who have any appointment with this doctor
     const apptPatientIds = await Appointment.find({ doctorId: user.doctorId }).distinct("patientId")
-    query = apptPatientIds.length > 0
-      ? { $or: [{ assignedDoctorId: user.doctorId }, { _id: { $in: apptPatientIds } }] }
-      : { assignedDoctorId: user.doctorId }
+    if (apptPatientIds.length > 0) {
+      query.$or = [{ assignedDoctorId: user.doctorId }, { _id: { $in: apptPatientIds } }]
+    } else {
+      query.assignedDoctorId = user.doctorId
+    }
+  }
+
+  // Delta-sync support — when the client passes ?since=<iso>, return only
+  // records whose updatedAt is newer, plus a fresh serverTime for the next
+  // poll's `since` cursor. Backward-compatible: without ?since= we return
+  // the full list exactly as before.
+  const sinceParam = request.nextUrl.searchParams.get("since")
+  const sinceDate = sinceParam ? new Date(sinceParam) : null
+  if (sinceDate && !isNaN(sinceDate.getTime())) {
+    query.updatedAt = { $gt: sinceDate }
   }
 
   // Strip the heavy sub-arrays from the list — they can be large and aren't
@@ -28,7 +40,11 @@ export async function GET(request: NextRequest) {
   const patients = await Patient.find(query)
     .select("-medicalHistory -documents")
     .sort({ createdAt: -1 })
-  return NextResponse.json({ data: patients.map((p) => p.toJSON()) })
+
+  return NextResponse.json({
+    data: patients.map((p) => p.toJSON()),
+    serverTime: new Date().toISOString(),
+  })
 }
 
 export async function POST(request: NextRequest) {

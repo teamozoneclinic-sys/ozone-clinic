@@ -15,20 +15,34 @@ export async function GET(request: NextRequest) {
   await connectDB()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let query: any = {}
+  const query: any = {}
   // Doctors see appointments where they were the treating doctor OR for any
   // patient currently assigned to them (so a re-assigned patient's full
   // appointment history surfaces under the new doctor too).
   if (user.role === "doctor" && user.doctorId) {
     const assignedPatientIds = await Patient.find({ assignedDoctorId: user.doctorId }).distinct("_id")
     const idStrings = assignedPatientIds.map((id) => id.toString())
-    query = idStrings.length > 0
-      ? { $or: [{ doctorId: user.doctorId }, { patientId: { $in: idStrings } }] }
-      : { doctorId: user.doctorId }
+    if (idStrings.length > 0) {
+      query.$or = [{ doctorId: user.doctorId }, { patientId: { $in: idStrings } }]
+    } else {
+      query.doctorId = user.doctorId
+    }
+  }
+
+  // Delta-sync support — see /api/patients for the pattern.
+  // Backward-compatible: without ?since= we return everything, as before.
+  const sinceParam = request.nextUrl.searchParams.get("since")
+  const sinceDate = sinceParam ? new Date(sinceParam) : null
+  if (sinceDate && !isNaN(sinceDate.getTime())) {
+    query.updatedAt = { $gt: sinceDate }
   }
 
   const appointments = await Appointment.find(query).sort({ date: -1, time: 1 })
-  return NextResponse.json({ data: appointments.map((a) => a.toJSON()) })
+
+  return NextResponse.json({
+    data: appointments.map((a) => a.toJSON()),
+    serverTime: new Date().toISOString(),
+  })
 }
 
 export async function POST(request: NextRequest) {

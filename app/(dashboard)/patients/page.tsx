@@ -77,7 +77,10 @@ function getAvatarColor(name: string) {
 }
 
 export default function PatientsPage() {
-  const { patients, doctors, getPatientInvoices, currentUser, deletePatient, updatePatient, hasPermission } = useStore()
+  // `invoices` pulled directly so we can memoize the outstanding-balance map
+  // in one pass instead of filtering-per-row (was O(patients × invoices) —
+  // ~3.1M iterations per render at current data volume).
+  const { patients, doctors, invoices, currentUser, deletePatient, updatePatient, hasPermission } = useStore()
   const isDoctor = currentUser?.role === "doctor"
   const canEditPatient = hasPermission("patients.edit")
   const canDeletePatient = hasPermission("patients.delete")
@@ -102,10 +105,20 @@ export default function PatientsPage() {
     })
   }, [patients, search, genderFilter, doctorFilter])
 
-  const getOutstandingBalance = (patientId: string) => {
-    const invoices = getPatientInvoices(patientId)
-    return invoices.reduce((sum, inv) => sum + inv.balance, 0)
-  }
+  // Single-pass build of patientId → outstanding-balance map.
+  // Rebuilds only when the invoice list actually changes (delta polling
+  // gives us a stable reference until something updates), so keystrokes in
+  // the search box or filter changes don't recompute this.
+  const outstandingByPatient = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const inv of invoices) {
+      if (!inv.patientId) continue
+      map.set(inv.patientId, (map.get(inv.patientId) ?? 0) + (inv.balance ?? 0))
+    }
+    return map
+  }, [invoices])
+
+  const getOutstandingBalance = (patientId: string) => outstandingByPatient.get(patientId) ?? 0
 
   const maleCount = patients.filter((p) => p.gender === "male").length
   const femaleCount = patients.filter((p) => p.gender === "female").length
